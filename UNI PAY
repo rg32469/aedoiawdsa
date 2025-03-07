@@ -1,0 +1,679 @@
+local ThemeManager = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/SaveManager.lua'))()
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
+
+-- Variables for both features
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local UIS = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
+
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local UIS = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
+
+
+local TPWalking = false
+local JumpEnabled = false
+local Flying = false
+local BodyVelocity
+local BodyGyro
+local Keybinds = {}
+
+local function ToggleFeature(name)
+    local toggle = Toggles[name]
+    if toggle then
+        toggle:SetValue(not toggle.Value)
+    end
+end
+
+
+
+-- Create a custom cursor with improved settings
+-- Create a custom cursor with precise positioning
+-- Create a custom cursor with exact Roblox cursor positioning
+-- Create a custom cursor with exact top-bar positioning
+local ScreenGui = Instance.new("ScreenGui")
+local Cursor = Instance.new("ImageLabel")
+
+ScreenGui.Parent = game.CoreGui
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.DisplayOrder = 999999
+
+Cursor.Name = "CustomCursor"
+Cursor.Parent = ScreenGui
+Cursor.BackgroundTransparency = 1
+Cursor.Size = UDim2.new(0, 32, 0, 32)
+Cursor.Image = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
+Cursor.ImageColor3 = Color3.fromRGB(255, 255, 255)
+Cursor.ImageTransparency = 0
+Cursor.ZIndex = 999999
+
+
+
+-- Matching the top-bar dragging position
+game:GetService("RunService").RenderStepped:Connect(function()
+    local mouseLocation = game:GetService("UserInputService"):GetMouseLocation()
+    -- Increased Y offset to match the top-bar position
+    Cursor.Position = UDim2.new(0, mouseLocation.X - 16, 0, mouseLocation.Y - 78)
+end)
+
+Library.OnLoad = function()
+    Cursor.Visible = true
+    game:GetService("UserInputService").MouseIconEnabled = false
+end
+
+Library.OnUnload = function()
+    Cursor.Visible = false
+    game:GetService("UserInputService").MouseIconEnabled = true
+end
+
+
+Library.OnUnload = function()
+    Cursor.Visible = false
+    game:GetService("UserInputService").MouseIconEnabled = true
+end
+-- Window and Tabs Setup
+local Window = Library:CreateWindow({
+    Title = 'ACE Universal',
+    Center = true,
+    AutoShow = true,
+})
+
+local Tabs = {
+    Main = Window:AddTab('Main'),
+    ESP = Window:AddTab('ESP Settings'),
+    ['UI Settings'] = Window:AddTab('UI Settings'),
+}
+
+-- Create GroupBoxes for Main Tab
+local Boxes = {
+    MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
+    MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
+}
+local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
+
+MovementBox:AddToggle('TPWalkEnabled', {
+    Text = 'Walkspeed',
+    Default = false,
+    Tooltip = 'Enable/Disable TP Walk',
+    Callback = function(Value)
+        TPWalking = Value
+    end
+}):AddKeyPicker('TPWalkKeybind', {
+    Default = 'T',
+    Mode = 'Toggle',
+    Text = 'TP Walk',
+    NoUI = false,
+    Callback = function(Value)
+        Toggles.TPWalkEnabled:SetValue(Value)
+        TPWalking = Value
+    end
+})
+
+MovementBox:AddSlider('WalkSpeed', {
+    Text = 'Walk Speed',
+    Default = 16,
+    Min = 1,
+    Max = 500,
+    Rounding = 1,
+    Compact = false,
+})
+
+MovementBox:AddToggle('JumpEnabled', {
+    Text = 'Jump Power',
+    Default = false,
+    Tooltip = 'Enable/Disable Custom Jump Power',
+    Callback = function(Value)
+        JumpEnabled = Value
+        local chr = LocalPlayer.Character
+        local hum = chr and chr:FindFirstChild("Humanoid")
+        if hum then
+            hum.JumpPower = JumpEnabled and Options.JumpPower.Value or 50
+        end
+    end
+}):AddKeyPicker('JumpKeybind', {
+    Default = 'J',
+    Mode = 'Toggle',
+    Text = 'Jump Power',
+    NoUI = false,
+    Callback = function(Value)
+        Toggles.JumpEnabled:SetValue(Value)
+        JumpEnabled = Value
+        local chr = LocalPlayer.Character
+        local hum = chr and chr:FindFirstChild("Humanoid")
+        if hum then
+            hum.JumpPower = JumpEnabled and Options.JumpPower.Value or 50
+        end
+    end
+})
+
+MovementBox:AddSlider('JumpPower', {
+    Text = 'Jump Power',
+    Default = 50,
+    Min = 50,
+    Max = 500,
+    Rounding = 0,
+    Compact = false,
+})
+
+
+
+
+
+
+-- Create GroupBoxes for ESP Tab
+local ESPBoxes = {
+    ESPLeft = Tabs.ESP:AddLeftGroupbox('ESP Features'),
+}
+
+-- Combat Features Implementation
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
+
+-- Aimbot Configuration
+local Configuration = {
+    Aimbot = false,
+    OnePressAimingMode = false,
+    AimKey = Enum.UserInputType.MouseButton2,
+    AimMode = "Camera",
+    OffAimbotAfterKill = false,
+    AimPartDropdownValues = { "Head", "HumanoidRootPart" },
+    AimPart = "Head",
+    RandomAimPart = false,
+    UseSensitivity = false,
+    Sensitivity = 50,
+    AimClosestToMouse = true, -- Default to true
+    HeadSize = 15,
+    HitboxExpanderEnabled = false,
+    ESPEnabled = false,
+    ESPSettings = {
+        Box = true,
+        Name = true,
+        Distance = 500,
+    }
+}
+
+local ESPObjects = {}
+
+-- Colors Handler
+local ColorsHandler = {}
+
+function ColorsHandler:PackColour(Colour)
+    return typeof(Colour) == "Color3" and { R = Colour.R * 255, G = Colour.G * 255, B = Colour.B * 255 } or typeof(Colour) == "table" and Colour or { R = 255, G = 255, B = 255 }
+end
+
+function ColorsHandler:UnpackColour(Colour)
+    return typeof(Colour) == "table" and Color3.fromRGB(Colour.R, Colour.G, Colour.B) or typeof(Colour) == "Color3" and Colour or Color3.fromRGB(255, 255, 255)
+end
+
+-- Aimbot Toggle
+Boxes.MainLeft:AddToggle('Aimbot', {
+    Text = 'Aimbot',
+    Default = false,
+    Tooltip = 'Locks onto players'
+}):OnChanged(function(Value)
+    Configuration.Aimbot = Value
+end)
+
+-- Aimbot Keybind
+Boxes.MainLeft:AddLabel('Aimbot Keybind'):AddKeyPicker('AimbotKey', {
+    Default = 'MB2',
+    SyncToggleState = false,
+    Mode = 'Hold',
+    Text = 'Aimbot Activation',
+    NoUI = false,
+    
+    Callback = function(Value)
+        Configuration.AimKey = Value
+    end
+})
+
+-- Additional Configurations
+Boxes.MainLeft:AddToggle('OnePressAimingMode', {
+    Text = 'One-Press Mode',
+    Default = false,
+    Tooltip = 'Uses the One-Press Mode instead of the Holding Mode'
+}):OnChanged(function(Value)
+    Configuration.OnePressAimingMode = Value
+end)
+
+Boxes.MainLeft:AddDropdown('AimMode', {
+    Values = { "Camera" },
+    Default = 1,
+    Multi = false,
+    Text = 'Aim Mode',
+    Tooltip = 'Changes the Aim Mode'
+}):OnChanged(function(Value)
+    Configuration.AimMode = Value
+end)
+
+Boxes.MainLeft:AddSlider('Sensitivity', {
+    Text = 'Sensitivity',
+    Default = 50,
+    Min = 1,
+    Max = 100,
+    Rounding = 1,
+    Tooltip = 'Smoothes out the Mouse / Camera Movements when Aiming'
+}):OnChanged(function(Value)
+    Configuration.Sensitivity = Value
+end)
+
+Boxes.MainLeft:AddToggle('OffAimbotAfterKill', {
+    Text = 'Off After Kill',
+    Default = false,
+    Tooltip = 'Disables the Aiming Mode after killing a Target'
+}):OnChanged(function(Value)
+    Configuration.OffAimbotAfterKill = Value
+end)
+
+Boxes.MainLeft:AddDropdown('AimPart', {
+    Values = { "Head", "HumanoidRootPart" },
+    Default = 1,
+    Multi = false,
+    Text = 'Aim Part',
+    Tooltip = 'Changes the Aim Part'
+}):OnChanged(function(Value)
+    Configuration.AimPart = Value
+end)
+
+Boxes.MainLeft:AddToggle('RandomAimPart', {
+    Text = 'Random Aim Part',
+    Default = false,
+    Tooltip = 'Selects every second a Random Aim Part from Dropdown'
+}):OnChanged(function(Value)
+    Configuration.RandomAimPart = Value
+end)
+
+Boxes.MainLeft:AddToggle('UseSensitivity', {
+    Text = 'Use Sensitivity',
+    Default = false,
+    Tooltip = 'Toggles the Sensitivity'
+}):OnChanged(function(Value)
+    Configuration.UseSensitivity = Value
+end)
+
+-- Aim Closest to Mouse Toggle (default to true)
+Boxes.MainLeft:AddToggle('AimClosestToMouse', {
+    Text = 'Aim Closest Player to Mouse',
+    Default = true,
+    Tooltip = 'Aims at the closest player to the mouse pointer'
+}):OnChanged(function(Value)
+    Configuration.AimClosestToMouse = Value
+end)
+
+-- Hitbox Expander Toggle
+Boxes.MainLeft:AddToggle('HitboxExpanderEnabled', {
+    Text = 'Enable Hitbox Expander',
+    Default = false,
+    Tooltip = 'Expands the hitbox of the target'
+}):OnChanged(function(Value)
+    Configuration.HitboxExpanderEnabled = Value
+end)
+
+-- Head Size Slider
+Boxes.MainLeft:AddSlider('HeadSize', {
+    Text = 'Head Size',
+    Default = 15,
+    Min = 1,
+    Max = 50,
+    Rounding = 1,
+    Tooltip = 'Sets the size of the head hitbox'
+}):OnChanged(function(Value)
+    Configuration.HeadSize = Value
+end)
+
+-- ESP Toggle
+ESPBoxes.ESPLeft:AddToggle('ESPEnabled', {
+    Text = 'Enable ESP',
+    Default = false,
+    Tooltip = 'Enables ESP features'
+}):OnChanged(function(Value)
+    Configuration.ESPEnabled = Value
+    if not Value then
+        for _, esp in pairs(ESPObjects) do
+            esp:Remove()
+        end
+        ESPObjects = {}
+    end
+end)
+
+-- ESP Box Toggle
+ESPBoxes.ESPLeft:AddToggle('ESPBox', {
+    Text = 'Box',
+    Default = true,
+    Tooltip = 'Shows a box around the player'
+}):OnChanged(function(Value)
+    Configuration.ESPSettings.Box = Value
+end)
+
+-- ESP Name Toggle
+ESPBoxes.ESPLeft:AddToggle('ESPName', {
+    Text = 'Name',
+    Default = true,
+    Tooltip = 'Shows the name of the player'
+}):OnChanged(function(Value)
+    Configuration.ESPSettings.Name = Value
+end)
+
+-- ESP Distance Slider
+ESPBoxes.ESPLeft:AddSlider('ESPDistance', {
+    Text = 'Distance',
+    Default = 500,
+    Min = 100,
+    Max = 1000,
+    Rounding = 1,
+    Tooltip = 'Sets the maximum distance for ESP'
+}):OnChanged(function(Value)
+    Configuration.ESPSettings.Distance = Value
+end)
+
+local function TPWalk(speed)
+    if not TPWalking then return end
+    local chr = LocalPlayer.Character
+    local hum = chr and chr:FindFirstChild("Humanoid")
+
+    if hum and speed > 0 then
+        local vel = hum.MoveDirection * speed
+        if vel.Magnitude > 0 then
+            chr:TranslateBy(vel * RunService.Heartbeat:Wait())
+        end
+    end
+end
+
+-- Fly Setup
+local function SetupFly()
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart then return end
+
+    BodyVelocity = Instance.new("BodyVelocity")
+    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+
+    BodyGyro = Instance.new("BodyGyro")
+    BodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    BodyGyro.P = 9000
+    BodyGyro.D = 250
+end
+
+Keybinds.Fly = MovementBox:AddToggle('FlyEnabled', {
+    Text = 'Fly',
+    Default = false,
+    Tooltip = 'Enable/Disable Flying',
+    Callback = function(Value)
+        Flying = Value
+        if Value then
+            SetupFly()
+        else
+            if BodyVelocity then BodyVelocity.Parent = nil end
+            if BodyGyro then BodyGyro.Parent = nil end
+        end
+    end
+}):AddKeyPicker('FlyKeybind', {
+    Default = 'G',
+    Mode = 'Toggle',
+    Text = 'Fly',
+    NoUI = false,
+    Callback = function(Value)
+        Toggles.FlyEnabled:SetValue(Value)
+        Flying = Value
+        if Value then
+            SetupFly()
+        else
+            if BodyVelocity then BodyVelocity.Parent = nil end
+            if BodyGyro then BodyGyro.Parent = nil end
+        end
+    end
+})
+
+
+MovementBox:AddSlider('FlySpeed', {
+    Text = 'Fly Speed',
+    Default = 45,
+    Min = 1,
+    Max = 500,
+    Rounding = 0,
+    Compact = false,
+})
+
+RunService.Heartbeat:Connect(function()
+    if TPWalking then
+        TPWalk(Options.WalkSpeed.Value)
+    end
+
+    if Flying then
+        local Character = LocalPlayer.Character
+        local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+        if not PrimaryPart then return end
+
+        local CamCFrame = Camera.CFrame
+        local Velocity = Vector3.new(0, 0, 0)
+        local Rotation = CamCFrame.Rotation
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            Velocity += CamCFrame.LookVector
+            Rotation *= CFrame.Angles(math.rad(-40), 0, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            Velocity -= CamCFrame.LookVector
+            Rotation *= CFrame.Angles(math.rad(40), 0, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            Velocity += CamCFrame.RightVector
+            Rotation *= CFrame.Angles(0, 0, math.rad(-40))
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            Velocity -= CamCFrame.RightVector
+            Rotation *= CFrame.Angles(0, 0, math.rad(40))
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            Velocity += Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            Velocity -= Vector3.new(0, 1, 0)
+        end
+
+        local TweenInfo = TweenInfo.new(0.5)
+        TweenService:Create(BodyVelocity, TweenInfo, {Velocity = Velocity * Options.FlySpeed.Value}):Play()
+        BodyVelocity.Parent = PrimaryPart
+
+        TweenService:Create(BodyGyro, TweenInfo, {CFrame = Rotation}):Play()
+        BodyGyro.Parent = PrimaryPart
+    end
+end)
+
+-- Function to get the closest player to the mouse
+local function getClosestPlayerToMouse()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local mouseLocation = UserInputService:GetMouseLocation()
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild(Configuration.AimPart) then
+            local screenPoint = Camera:WorldToScreenPoint(player.Character[Configuration.AimPart].Position)
+            local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - mouseLocation).Magnitude
+            if distance < shortestDistance then
+                closestPlayer = player
+                shortestDistance = distance
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Function to get the closest player
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild(Configuration.AimPart) then
+            local magnitude = (player.Character[Configuration.AimPart].Position - Players.LocalPlayer.Character[Configuration.AimPart].Position).Magnitude
+            if magnitude < shortestDistance then
+                closestPlayer = player
+                shortestDistance = magnitude
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+local function createBoxESP(player)
+    local box = Drawing.new("Square")
+    box.Thickness = 2
+    box.Color = Color3.new(1, 0, 0)
+    box.Filled = false
+    box.Transparency = 1
+
+    local function updateBox()
+        if Configuration.ESPEnabled and Configuration.ESPSettings.Box and player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local humanoidRootPart = player.Character.HumanoidRootPart
+            local head = player.Character.Head
+            local rootPos, rootVis = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+            local headPos, headVis = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+            if rootVis and headVis then
+                local height = (rootPos.Y - headPos.Y) * 2
+                local width = height / 2
+                box.Size = Vector2.new(width, height)
+                box.Position = Vector2.new(rootPos.X - width / 2, rootPos.Y - height / 2)
+                box.Visible = true
+            else
+                box.Visible = false
+            end
+        else
+            box.Visible = false
+        end
+    end
+
+    RunService.RenderStepped:Connect(updateBox)
+
+    return box
+end
+
+-- Function to create a name ESP
+local function createNameESP(player)
+    local nameTag = Drawing.new("Text")
+    nameTag.Size = 16
+    nameTag.Color = Color3.new(1, 1, 1)
+    nameTag.Outline = true
+    nameTag.Center = true
+    nameTag.Transparency = 1
+    nameTag.Text = player.Name
+
+    local function updateNameTag()
+        if Configuration.ESPEnabled and Configuration.ESPSettings.Name and player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local head = player.Character.Head
+            local headPos, headVis = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+            if headVis then
+                nameTag.Position = Vector2.new(headPos.X, headPos.Y - 30)
+                nameTag.Visible = true
+            else
+                nameTag.Visible = false
+            end
+        else
+            nameTag.Visible = false
+        end
+    end
+
+    RunService.RenderStepped:Connect(updateNameTag)
+
+    return nameTag
+end
+
+-- Function to draw ESP
+local function drawESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (player.Character.HumanoidRootPart.Position - Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if distance <= Configuration.ESPSettings.Distance then
+                if Configuration.ESPSettings.Box and not ESPObjects[player] then
+                    ESPObjects[player] = {
+                        box = createBoxESP(player)
+                    }
+                end
+                if Configuration.ESPSettings.Name and not ESPObjects[player].name then
+                    ESPObjects[player].name = createNameESP(player)
+                end
+            end
+        end
+    end
+end
+
+-- RenderStepped loop for aimbot functionality, hitbox expander, and ESP
+RunService.RenderStepped:Connect(function()
+    if Configuration.HitboxExpanderEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+                local head = player.Character.Head
+                head.Size = Vector3.new(Configuration.HeadSize, Configuration.HeadSize, Configuration.HeadSize)
+                head.Transparency = 1
+                head.BrickColor = BrickColor.new("Red")
+                head.Material = "Neon"
+                head.CanCollide = false
+                head.Massless = true
+            end
+        end
+    end
+
+    if Configuration.Aimbot and Options.AimbotKey:GetState() then
+        local target
+        if Configuration.AimClosestToMouse then
+            target = getClosestPlayerToMouse()
+        else
+            target = getClosestPlayer()
+        end
+        
+        if target and target.Character and target.Character:FindFirstChild(Configuration.AimPart) then
+            local camera = Camera
+            local targetPosition = target.Character[Configuration.AimPart].Position
+            if Configuration.AimMode == "Camera" then
+                if Configuration.UseSensitivity then
+                    local currentCFrame = camera.CFrame
+                    local targetCFrame = CFrame.new(camera.CFrame.Position, targetPosition)
+                    camera.CFrame = currentCFrame:Lerp(targetCFrame, Configuration.Sensitivity / 100)
+                else
+                    camera.CFrame = CFrame.new(camera.CFrame.Position, targetPosition)
+                end
+            end
+        end
+    end
+    
+    if Configuration.ESPEnabled then
+        drawESP()
+    end
+end)
+
+-- Initialize Theme and Save Manager
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+ThemeManager:SetFolder('WestboundPro')
+SaveManager:SetFolder('WestboundPro')
+SaveManager:BuildConfigSection(Tabs['UI Settings'])
+ThemeManager:ApplyToTab(Tabs['UI Settings'])
+
+-- UI Watermark
+Library:SetWatermarkVisibility(true)
+Library:SetWatermark('ACE WESTBOUND | Combat Loaded')
+Library.KeybindFrame.Visible = true
+
+return {
+    Library = Library,
+    Boxes = Boxes,
+    Window = Window,
+    Tabs = Tabs,
+}
