@@ -154,7 +154,7 @@ GunModBoxes.GunModsLeft:AddToggle('MaxShots', {
 })
 
 GunModBoxes.GunModsLeft:AddToggle('InfiniteAmmo', {
-    Text = 'Infinite Ammo',
+    Text = 'Infinite Ammo (BROKEN DONT USE)',
     Default = false,
     Tooltip = 'Never run out of ammo'
 })
