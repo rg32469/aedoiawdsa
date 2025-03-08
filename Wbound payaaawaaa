@@ -10,6 +10,10 @@ local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violi
 local lastUpdate = 0
 local updateCooldown = 0.1  -- 100ms cooldown
 local OldRecoilFunction
+local modifiedGuns = {}
+local lastUpdate = 0
+local updateCooldown = 0.2  -- Increased cooldown to reduce frequency
+
 
 -- Variables for both features
 local player = game.Players.LocalPlayer
@@ -117,7 +121,7 @@ GunModBoxes.GunModsLeft:AddToggle('MaxShots', {
 })
 
 GunModBoxes.GunModsLeft:AddToggle('InfiniteAmmo', {
-    Text = 'Infinite Ammo (Semi Broken)',
+    Text = 'Infinite Ammo (BROKEN)',
     Default = false,
     Tooltip = 'Never run out of ammo'
 })
@@ -146,88 +150,92 @@ GunModBoxes.GunModsLeft:AddToggle('NoFireRate', {
     Tooltip = 'Removes weapon fire rate limits'
 })
 
--- Add this after your gun mod toggles
 local function ModifyGuns()
     local currentTime = tick()
     if currentTime - lastUpdate < updateCooldown then return end
     lastUpdate = currentTime
 
-    for _, v in next, getgc(true) do
-        if type(v) == "table" and rawget(v, "Shots") then
+    -- Only get GC objects if we haven't cached any guns yet
+    if next(modifiedGuns) == nil then
+        for _, v in next, getgc(true) do
+            if type(v) == "table" and rawget(v, "Shots") then
+                modifiedGuns[v] = true
+            end
+        end
+    end
+
+    -- Process cached guns
+    for gunTable, _ in pairs(modifiedGuns) do
+        -- Validate gun table still exists and has required properties
+        if type(gunTable) == "table" and rawget(gunTable, "Shots") then
             pcall(function()
-                if Toggles.MaxShots.Value then
-                    rawset(v.GunStats, "MaxShots", rawget(v, "TotalAmmoClient"))
-                end
-                
-                if Toggles.InfiniteAmmo.Value then
-                    if v.AmmoVal.Clip.Value < v.GunStats.MaxShots then
-                        rawset(v, "Shots", v.GunStats.MaxShots)
-                        v.AmmoVal.Clip.Value = v.GunStats.MaxShots
-                        rawset(v, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
-                    end
-                end
-                
-                if Toggles.NoSpread.Value then
-                    if v.GunStats.ZoomAccuracy ~= 0 then
-                        rawset(v.GunStats, "ZoomAccuracy", 0)
-                        rawset(v.GunStats, "HipFireAccuracy", 0)
-                        rawset(v.GunStats, "FiringOffset", CFrame.new(Vector3.new(0, 0, 0)))
-                    end
-                end
-                
-                if Toggles.NoCooldowns.Value then
-                    if v.GunStats.ReloadSpeed ~= 0 then
-                        rawset(v.GunStats, "ReloadSpeed", 0)
-                        rawset(v.GunStats, "equipSpeed", 0)
-                        rawset(v.GunStats, "EquipDelay", 0)
-                        rawset(v.GunStats, "ReloadAnimationSpeed", 0)
-                        rawset(v.GunStats, "InstantFireAnimation", true)
-                        rawset(v.GunStats, "prepSpeed", 0)
-                        rawset(v.GunStats, "ZoomFOVSpeed", 0)
-                        rawset(v, "reloadManual", false)
-                    end
-                end
-                
-                if Toggles.NoRecoil.Value then
-                    if not OldRecoilFunction then
-                        OldRecoilFunction = v.shakeCam
-                    end
-                    rawset(v, "shakeCam", function() return "RECOIL OFF" end)
+                local gunStats = rawget(gunTable, "GunStats")
+                if not gunStats then return end
+
+                -- Cache toggle states to avoid repeated lookups
+                local maxShots = Toggles.MaxShots.Value
+                local infAmmo = Toggles.InfiniteAmmo.Value
+                local noSpread = Toggles.NoSpread.Value
+                local noCooldowns = Toggles.NoCooldowns.Value
+                local noRecoil = Toggles.NoRecoil.Value
+                local noFireRate = Toggles.NoFireRate.Value
+
+                -- Batch modifications to reduce property updates
+                if maxShots then
+                    rawset(gunStats, "MaxShots", rawget(gunTable, "TotalAmmoClient"))
                 end
 
-                if Toggles.NoFireRate.Value then
-                    rawset(v, "shotDebounce", false)
-                    rawset(v, "Delay", 0)
+                if infAmmo and gunTable.AmmoVal and gunTable.AmmoVal.Clip then
+                    if gunTable.AmmoVal.Clip.Value < gunStats.MaxShots then
+                        rawset(gunTable, "Shots", gunStats.MaxShots)
+                        gunTable.AmmoVal.Clip.Value = gunStats.MaxShots
+                        rawset(gunTable, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
+                    end
+                end
+
+                if noSpread and gunStats.ZoomAccuracy ~= 0 then
+                    rawset(gunStats, "ZoomAccuracy", 0)
+                    rawset(gunStats, "HipFireAccuracy", 0)
+                    rawset(gunStats, "FiringOffset", CFrame.new(Vector3.new(0, 0, 0)))
+                end
+
+                if noCooldowns and gunStats.ReloadSpeed ~= 0 then
+                    local stats = {
+                        ReloadSpeed = 0,
+                        equipSpeed = 0,
+                        EquipDelay = 0,
+                        ReloadAnimationSpeed = 0,
+                        InstantFireAnimation = true,
+                        prepSpeed = 0,
+                        ZoomFOVSpeed = 0
+                    }
+                    for key, value in pairs(stats) do
+                        rawset(gunStats, key, value)
+                    end
+                    rawset(gunTable, "reloadManual", false)
+                end
+
+                if noRecoil then
+                    if not OldRecoilFunction then
+                        OldRecoilFunction = gunTable.shakeCam
+                    end
+                    if gunTable.shakeCam ~= OldRecoilFunction then
+                        rawset(gunTable, "shakeCam", function() return "RECOIL OFF" end)
+                    end
+                end
+
+                if noFireRate then
+                    rawset(gunTable, "shotDebounce", false)
+                    rawset(gunTable, "Delay", 0)
                 end
             end)
+        else
+            -- Remove invalid gun references from cache
+            modifiedGuns[gunTable] = nil
         end
     end
 end
 
-for _, toggle in pairs(Toggles) do
-    if toggle then
-        toggle:OnChanged(function()
-            ModifyGuns()
-              local activeFeatures = {
-                Toggles.MaxShots.Value and "MaxShots" or nil,
-                Toggles.InfiniteAmmo.Value and "InfAmmo" or nil,
-                Toggles.NoSpread.Value and "NoSpread" or nil,
-                Toggles.NoCooldowns.Value and "NoCooldown" or nil,
-                Toggles.NoRecoil.Value and "NoRecoil" or nil,
-                Toggles.NoFireRate.Value and "NoFireRate" or nil
-            }
-            
-            local activeStr = ""
-            for _, feature in ipairs(activeFeatures) do
-                if feature then
-                    activeStr = activeStr .. (activeStr == "" and "" or ", ") .. feature
-                end
-            end
-            
-            statusLabel:SetText(activeStr ~= "" and ("Active: " .. activeStr) or "Status: Idle")
-        end)
-    end
-end
 
 -- Add this heartbeat connection for gun mods
 local gunModsConnection = RunService.Heartbeat:Connect(function()
