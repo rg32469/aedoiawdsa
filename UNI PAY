@@ -290,8 +290,13 @@ MovementBox:AddSlider('JumpPower', {
 
 local PlayerBox = Tabs.Players:AddLeftGroupbox('Player Options')
 
+local DevBox = Tabs.Players:AddRightGroupbox('MUST READ')
 
-
+-- Format and display date/time and user info
+DevBox:AddLabel('If you enable "Fuck player" and')
+DevBox:AddLabel('then enable "attach" enable and')
+DevBox:AddLabel('disable fuck player to fix being')
+DevBox:AddLabel('frozen.')
 -- Create GroupBoxes for ESP Tab
 -- Keep your existing ESPBoxes declaration
 local ESPBoxes = {
