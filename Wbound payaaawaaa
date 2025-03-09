@@ -10,8 +10,9 @@ local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violi
 local lastUpdate = 0
 local updateCooldown = 0.1  -- 100ms cooldown
 local OldRecoilFunction
-
-
+local modifiedGuns = {}
+local lastUpdate = 0
+local updateCooldown = 0.2  -- Increased cooldown to reduce frequency
 
 -- Variables for both features
 local player = game.Players.LocalPlayer
@@ -19,6 +20,20 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local UIS = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
+
+
+
+local SavedPosition = nil
+local NoClipping = false
+local Camera = workspace.CurrentCamera
+local CameraLocked = false
+local LastCameraSubject = nil
+
+local AttachedToPlayer = false
+local SelectedPlayer = nil
+local AttachmentOffset = Vector3.new(0, 0, 2)
+local LastPosition = CFrame.new()
+local TransitionSpeed = 0.5
 
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -34,16 +49,6 @@ local BodyVelocity
 local BodyGyro
 local Keybinds = {}
 
-local function ReconnectGunMods()
-    RunService.Heartbeat:Connect(function()
-        if Toggles.MaxShots.Value or Toggles.InfiniteAmmo.Value or 
-           Toggles.NoSpread.Value or Toggles.NoCooldowns.Value or 
-           Toggles.NoRecoil.Value or Toggles.NoFireRate.Value then
-            ModifyGuns()
-        end
-    end)
-end
-
 local function ToggleFeature(name)
     local toggle = Toggles[name]
     if toggle then
@@ -51,32 +56,17 @@ local function ToggleFeature(name)
     end
 end
 
-LocalPlayer.CharacterAdded:Connect(function()
-    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    ReconnectGunMods()
-end)
-
-LocalPlayer.CharacterRemoving:Connect(function()
-    if gunModsConnection then
-        gunModsConnection:Disconnect()
+local function ToggleNoclip(enabled)
+    NoClipping = enabled
+    local character = LocalPlayer.Character
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not enabled
+            end
+        end
     end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function()
-    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    if gunModsConnection then
-        gunModsConnection:Disconnect()
-    end
-    ReconnectGunMods()
-end)
-
-LocalPlayer.CharacterRemoving:Connect(function()
-    if gunModsConnection then
-        gunModsConnection:Disconnect()
-    end
-end)
+end
 
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
@@ -124,14 +114,15 @@ Library.OnUnload = function()
 end
 -- Window and Tabs Setup
 local Window = Library:CreateWindow({
-    Title = 'ACE - Westbound',
+    Title = 'ACE WESTBOUND',
     Center = true,
     AutoShow = true,
 })
 
 local Tabs = {
     Main = Window:AddTab('Main'),
-    Gunmods = Window:AddTab('Gun Mods'),
+      Gunmods = Window:AddTab('Gun Mods'),
+    Players = Window:AddTab('Players'),
     ESP = Window:AddTab('ESP Settings'),
     ['UI Settings'] = Window:AddTab('UI Settings'),
 }
@@ -154,7 +145,7 @@ GunModBoxes.GunModsLeft:AddToggle('MaxShots', {
 })
 
 GunModBoxes.GunModsLeft:AddToggle('InfiniteAmmo', {
-    Text = 'Infinite Ammo (BROKEN DONT USE)',
+    Text = 'Infinite Ammo (BROKEN)',
     Default = false,
     Tooltip = 'Never run out of ammo'
 })
@@ -183,102 +174,101 @@ GunModBoxes.GunModsLeft:AddToggle('NoFireRate', {
     Tooltip = 'Removes weapon fire rate limits'
 })
 
--- Add this after your gun mod toggles
 local function ModifyGuns()
     local currentTime = tick()
     if currentTime - lastUpdate < updateCooldown then return end
     lastUpdate = currentTime
 
-    for _, v in next, getgc(true) do
-        if type(v) == "table" and rawget(v, "Shots") then
+    -- Only get GC objects if we haven't cached any guns yet
+    if next(modifiedGuns) == nil then
+        for _, v in next, getgc(true) do
+            if type(v) == "table" and rawget(v, "Shots") then
+                modifiedGuns[v] = true
+            end
+        end
+    end
+
+    -- Process cached guns
+    for gunTable, _ in pairs(modifiedGuns) do
+        -- Validate gun table still exists and has required properties
+        if type(gunTable) == "table" and rawget(gunTable, "Shots") then
             pcall(function()
-                if Toggles.MaxShots.Value then
-                    rawset(v.GunStats, "MaxShots", rawget(v, "TotalAmmoClient"))
-                end
-                
-                if Toggles.InfiniteAmmo.Value then
-                    if v.AmmoVal.Clip.Value < v.GunStats.MaxShots then
-                        rawset(v, "Shots", v.GunStats.MaxShots)
-                        v.AmmoVal.Clip.Value = v.GunStats.MaxShots
-                        rawset(v, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
-                    end
-                end
-                
-                if Toggles.NoSpread.Value then
-                    if v.GunStats.ZoomAccuracy ~= 0 then
-                        rawset(v.GunStats, "ZoomAccuracy", 0)
-                        rawset(v.GunStats, "HipFireAccuracy", 0)
-                        rawset(v.GunStats, "FiringOffset", CFrame.new(Vector3.new(0, 0, 0)))
-                    end
-                end
-                
-                if Toggles.NoCooldowns.Value then
-                    if v.GunStats.ReloadSpeed ~= 0 then
-                        rawset(v.GunStats, "ReloadSpeed", 0)
-                        rawset(v.GunStats, "equipSpeed", 0)
-                        rawset(v.GunStats, "EquipDelay", 0)
-                        rawset(v.GunStats, "ReloadAnimationSpeed", 0)
-                        rawset(v.GunStats, "InstantFireAnimation", true)
-                        rawset(v.GunStats, "prepSpeed", 0)
-                        rawset(v.GunStats, "ZoomFOVSpeed", 0)
-                        rawset(v, "reloadManual", false)
-                    end
-                end
-                
-                if Toggles.NoRecoil.Value then
-                    if not OldRecoilFunction then
-                        OldRecoilFunction = v.shakeCam
-                    end
-                    rawset(v, "shakeCam", function() return "RECOIL OFF" end)
+                local gunStats = rawget(gunTable, "GunStats")
+                if not gunStats then return end
+
+                -- Cache toggle states to avoid repeated lookups
+                local maxShots = Toggles.MaxShots.Value
+                local infAmmo = Toggles.InfiniteAmmo.Value
+                local noSpread = Toggles.NoSpread.Value
+                local noCooldowns = Toggles.NoCooldowns.Value
+                local noRecoil = Toggles.NoRecoil.Value
+                local noFireRate = Toggles.NoFireRate.Value
+
+                -- Batch modifications to reduce property updates
+                if maxShots then
+                    rawset(gunStats, "MaxShots", rawget(gunTable, "TotalAmmoClient"))
                 end
 
-                if Toggles.NoFireRate.Value then
-                    rawset(v, "shotDebounce", false)
-                    rawset(v, "Delay", 0)
+                if infAmmo and gunTable.AmmoVal and gunTable.AmmoVal.Clip then
+                    if gunTable.AmmoVal.Clip.Value < gunStats.MaxShots then
+                        rawset(gunTable, "Shots", gunStats.MaxShots)
+                        gunTable.AmmoVal.Clip.Value = gunStats.MaxShots
+                        rawset(gunTable, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
+                    end
+                end
+
+                if noSpread and gunStats.ZoomAccuracy ~= 0 then
+                    rawset(gunStats, "ZoomAccuracy", 0)
+                    rawset(gunStats, "HipFireAccuracy", 0)
+                    rawset(gunStats, "FiringOffset", CFrame.new(Vector3.new(0, 0, 0)))
+                end
+
+                if noCooldowns and gunStats.ReloadSpeed ~= 0 then
+                    local stats = {
+                        ReloadSpeed = 0,
+                        equipSpeed = 0,
+                        EquipDelay = 0,
+                        ReloadAnimationSpeed = 0,
+                        InstantFireAnimation = true,
+                        prepSpeed = 0,
+                        ZoomFOVSpeed = 0
+                    }
+                    for key, value in pairs(stats) do
+                        rawset(gunStats, key, value)
+                    end
+                    rawset(gunTable, "reloadManual", false)
+                end
+
+                if noRecoil then
+                    if not OldRecoilFunction then
+                        OldRecoilFunction = gunTable.shakeCam
+                    end
+                    if gunTable.shakeCam ~= OldRecoilFunction then
+                        rawset(gunTable, "shakeCam", function() return "RECOIL OFF" end)
+                    end
+                end
+
+                if noFireRate then
+                    rawset(gunTable, "shotDebounce", false)
+                    rawset(gunTable, "Delay", 0)
                 end
             end)
+        else
+            -- Remove invalid gun references from cache
+            modifiedGuns[gunTable] = nil
         end
     end
 end
 
-for _, toggle in pairs(Toggles) do
-    if toggle then
-        toggle:OnChanged(function()
-            ModifyGuns()
-              local activeFeatures = {
-                Toggles.MaxShots.Value and "MaxShots" or nil,
-                Toggles.InfiniteAmmo.Value and "InfAmmo" or nil,
-                Toggles.NoSpread.Value and "NoSpread" or nil,
-                Toggles.NoCooldowns.Value and "NoCooldown" or nil,
-                Toggles.NoRecoil.Value and "NoRecoil" or nil,
-                Toggles.NoFireRate.Value and "NoFireRate" or nil
-            }
-            
-            local activeStr = ""
-            for _, feature in ipairs(activeFeatures) do
-                if feature then
-                    activeStr = activeStr .. (activeStr == "" and "" or ", ") .. feature
-                end
-            end
-            
-            statusLabel:SetText(activeStr ~= "" and ("Active: " .. activeStr) or "Status: Idle")
-        end)
-    end
-end
 
 -- Add this heartbeat connection for gun mods
-local gunModsConnection
-local function ConnectGunMods()
-    gunModsConnection = RunService.Heartbeat:Connect(function()
-        if Toggles.MaxShots.Value or Toggles.InfiniteAmmo.Value or 
-           Toggles.NoSpread.Value or Toggles.NoCooldowns.Value or 
-           Toggles.NoRecoil.Value or Toggles.NoFireRate.Value then
-            ModifyGuns()
-        end
-    end)
-end
-
-ConnectGunMods()
+local gunModsConnection = RunService.Heartbeat:Connect(function()
+    if Toggles.MaxShots.Value or Toggles.InfiniteAmmo.Value or 
+       Toggles.NoSpread.Value or Toggles.NoCooldowns.Value or 
+       Toggles.NoRecoil.Value or Toggles.NoFireRate.Value then
+        ModifyGuns()
+    end
+end)
 
 -- Add cleanup for the connection
 local oldUnload = Library.OnUnload
@@ -291,11 +281,16 @@ Library.OnUnload = function()
     end
 end
 
--- Create GroupBoxes for Main Tab
+-- Update your Boxes declaration to include the new hitbox section
 local Boxes = {
     MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
-    MainRight = Tabs.Main:AddRightGroupbox('Hitbox Expander'), -- Changed name
+    MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
+    HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander'),
+    -- Add this new box
+    FuckSection = Tabs.Players:AddRightGroupbox('Fuck Settings')  -- New group box in Players tab
 }
+
+
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
 
 MovementBox:AddToggle('TPWalkEnabled', {
@@ -364,11 +359,311 @@ MovementBox:AddSlider('JumpPower', {
 
 
 
+local PlayerBox = Tabs.Players:AddLeftGroupbox('Player Options')
+
+
+
 -- Create GroupBoxes for ESP Tab
+-- Keep your existing ESPBoxes declaration
 local ESPBoxes = {
     ESPLeft = Tabs.ESP:AddLeftGroupbox('ESP Features'),
 }
 
+-- Add new ESP container
+local espContainer = Instance.new("Folder")
+espContainer.Name = "ESPContainer"
+if syn and syn.protect_gui then
+    syn.protect_gui(espContainer)
+    espContainer.Parent = game:GetService("CoreGui")
+else
+    espContainer.Parent = game:GetService("CoreGui")
+end
+
+-- ESP Settings
+local ESP = {
+    Enabled = false,
+    Distance = 1000,
+    FillEnabled = true,
+    OutlineEnabled = true,
+    NameEnabled = false,
+    FillColor = Color3.fromRGB(255, 0, 0),
+    OutlineColor = Color3.fromRGB(255, 255, 255),
+    FillTransparency = 0.5,
+    OutlineTransparency = 0,
+    NameColor = Color3.fromRGB(255, 255, 255),
+    NameSize = 14,
+    Players = {},
+    Connections = {},
+    NameLabels = {}
+}
+
+-- Add ESP functions
+local function createNameESP(player)
+    if ESP.NameLabels[player] then return end
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Size = UDim2.new(0, 200, 0, 50)
+    nameLabel.Font = Enum.Font.SourceSansBold
+    nameLabel.TextSize = ESP.NameSize
+    nameLabel.TextColor3 = ESP.NameColor
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.Visible = ESP.NameEnabled
+    nameLabel.Parent = espContainer
+    
+    ESP.NameLabels[player] = nameLabel
+    
+    return nameLabel
+end
+
+local function updateNameESP(player, character)
+    local nameLabel = ESP.NameLabels[player]
+    if not nameLabel then return end
+    
+    RunService.RenderStepped:Connect(function()
+        if not ESP.NameEnabled then
+            nameLabel.Visible = false
+            return
+        end
+        
+        if character and character:FindFirstChild("Head") then
+            local head = character.Head
+            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0))
+            
+            if onScreen then
+                local distance = (head.Position - LocalPlayer.Character.Head.Position).Magnitude
+                if distance <= ESP.Distance then
+                    nameLabel.Position = UDim2.new(0, screenPos.X - nameLabel.Size.X.Offset/2, 0, screenPos.Y - nameLabel.Size.Y.Offset/2)
+                    nameLabel.Text = string.format("%s\n[%d studs]", player.Name, math.floor(distance))
+                    nameLabel.Visible = true
+                else
+                    nameLabel.Visible = false
+                end
+            else
+                nameLabel.Visible = false
+            end
+        end
+    end)
+end
+
+local function createHighlight(player)
+    if not ESP.Players[player] then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = player.Name
+        highlight.FillColor = ESP.FillColor
+        highlight.OutlineColor = ESP.OutlineColor
+        highlight.FillTransparency = ESP.FillTransparency
+        highlight.OutlineTransparency = ESP.OutlineTransparency
+        highlight.Enabled = ESP.Enabled
+        highlight.Parent = espContainer
+        
+        local nameLabel = createNameESP(player)
+        
+        ESP.Players[player] = {
+            highlight = highlight,
+            connection = RunService.RenderStepped:Connect(function()
+                local character = player.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local distance = (character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    if distance <= ESP.Distance then
+                        highlight.Enabled = ESP.Enabled
+                        highlight.Adornee = character
+                        highlight.FillTransparency = ESP.FillEnabled and ESP.FillTransparency or 1
+                        highlight.OutlineTransparency = ESP.OutlineEnabled and ESP.OutlineTransparency or 1
+                        
+                        if ESP.NameEnabled then
+                            updateNameESP(player, character)
+                        end
+                    else
+                        highlight.Enabled = false
+                        if nameLabel then nameLabel.Visible = false end
+                    end
+                end
+            end)
+        }
+    end
+end
+
+local function removeHighlight(player)
+    if ESP.Players[player] then
+        ESP.Players[player].highlight:Destroy()
+        ESP.Players[player].connection:Disconnect()
+        ESP.Players[player] = nil
+        
+        if ESP.NameLabels[player] then
+            ESP.NameLabels[player]:Destroy()
+            ESP.NameLabels[player] = nil
+        end
+    end
+end
+
+local function initESP()
+    ESP.Connections.PlayerAdded = Players.PlayerAdded:Connect(createHighlight)
+    ESP.Connections.PlayerRemoving = Players.PlayerRemoving:Connect(removeHighlight)
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            createHighlight(player)
+        end
+    end
+end
+
+local function cleanupESP()
+    for _, connection in pairs(ESP.Connections) do
+        connection:Disconnect()
+    end
+    
+    for player, _ in pairs(ESP.Players) do
+        removeHighlight(player)
+    end
+    
+    ESP.Connections = {}
+    ESP.Players = {}
+    ESP.NameLabels = {}
+end
+
+RunService.RenderStepped:Connect(function()
+    if AttachedToPlayer and SelectedPlayer and SelectedPlayer.Character and LocalPlayer.Character then
+        local targetRoot = SelectedPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local localRoot = LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        
+        if targetRoot and localRoot then
+            -- Set character to noclip state
+            if humanoid then
+                humanoid:ChangeState(11)
+            end
+            
+            -- Calculate the position behind the target player
+            local targetCFrame = targetRoot.CFrame
+            local behind = targetCFrame.lookVector * -AttachmentOffset.Z
+            local right = targetCFrame.rightVector * AttachmentOffset.X
+            local up = targetCFrame.upVector * AttachmentOffset.Y
+            
+            if FuckPlayerEnabled then
+                -- Use original oscillation method
+                OscillationOffset = math.sin(tick() * OscillationSpeed) * OscillationDistance
+                behind = targetCFrame.lookVector * -(2 + OscillationOffset)
+            end
+            
+            -- Set the player's position
+            local targetPosition = CFrame.new(
+                targetRoot.Position + behind + right + up,
+                targetRoot.Position
+            )
+            
+            -- Use smooth transition from attach system
+            local smoothPosition = LastPosition:Lerp(targetPosition, TransitionSpeed)
+            localRoot.CFrame = smoothPosition
+            LastPosition = smoothPosition
+            
+            -- Cleanup any existing physics objects
+            for _, child in pairs(localRoot:GetChildren()) do
+                if child:IsA("BodyVelocity") or child:IsA("BodyGyro") then
+                    child:Destroy()
+                end
+            end
+            
+            -- Add fresh velocity dampening
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.MaxForce = Vector3.new(1000000, 1000000, 1000000)
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocity.Parent = localRoot
+            
+            -- Maintain noclip state
+            ToggleNoclip(true)
+        end
+    elseif not AttachedToPlayer and not FuckPlayerEnabled then
+        -- Reset LastPosition when not attached
+        LastPosition = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') and 
+            LocalPlayer.Character.HumanoidRootPart.CFrame or CFrame.new()
+    end
+end)
+
+-- Add ESP controls to your existing ESP tab
+ESPBoxes.ESPLeft:AddToggle('ESP_Enabled', {
+    Text = 'Enable ESP',
+    Default = false,
+    Tooltip = 'Toggle ESP visibility',
+    Callback = function(Value)
+        ESP.Enabled = Value
+        if Value then
+            initESP()
+        else
+            cleanupESP()
+        end
+    end
+})
+
+ESPBoxes.ESPLeft:AddToggle('Fill_Enabled', {
+    Text = 'Enable Fill',
+    Default = true,
+    Tooltip = 'Toggle ESP fill visibility',
+    Callback = function(Value)
+        ESP.FillEnabled = Value
+    end
+})
+
+ESPBoxes.ESPLeft:AddToggle('Outline_Enabled', {
+    Text = 'Enable Outline',
+    Default = true,
+    Tooltip = 'Toggle ESP outline visibility',
+    Callback = function(Value)
+        ESP.OutlineEnabled = Value
+    end
+})
+
+
+
+ESPBoxes.ESPLeft:AddSlider('ESP_Distance', {
+    Text = 'ESP Distance',
+    Default = 1000,
+    Min = 10,
+    Max = 2000,
+    Rounding = 0,
+    Compact = false,
+    Callback = function(Value)
+        ESP.Distance = Value
+    end
+})
+
+ESPBoxes.ESPLeft:AddSlider('Fill_Transparency', {
+    Text = 'Fill Transparency',
+    Default = 0.5,
+    Min = 0,
+    Max = 1,
+    Rounding = 2,
+    Compact = false,
+    Callback = function(Value)
+        ESP.FillTransparency = Value
+    end
+})
+
+
+
+-- Add color pickers
+ESPBoxes.ESPLeft:AddLabel('Fill Color'):AddColorPicker('Fill_Color', {
+    Default = ESP.FillColor,
+    Title = 'Fill Color',
+    Callback = function(Value)
+        ESP.FillColor = Value
+        for _, data in pairs(ESP.Players) do
+            data.highlight.FillColor = Value
+        end
+    end
+})
+
+ESPBoxes.ESPLeft:AddLabel('Outline Color'):AddColorPicker('Outline_Color', {
+    Default = ESP.OutlineColor,
+    Title = 'Outline Color',
+    Callback = function(Value)
+        ESP.OutlineColor = Value
+        for _, data in pairs(ESP.Players) do
+            data.highlight.OutlineColor = Value
+        end
+    end
+})
 -- Combat Features Implementation
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -379,15 +674,17 @@ local HttpService = game:GetService("HttpService")
 -- Aimbot Configuration
 local Configuration = {
     Aimbot = false,
-    OnePressAimingMode = false,
     AimKey = Enum.UserInputType.MouseButton2,
     AimMode = "Camera",
-    OffAimbotAfterKill = false,
+    WallCheck = true,
     AimPartDropdownValues = { "Head", "HumanoidRootPart" },
     AimPart = "Head",
     RandomAimPart = false,
     UseSensitivity = false,
     Sensitivity = 50,
+    ShowFOV = true,
+    FOVRadius = 100,
+    MaxAimbotDistance = 1000,
     AimClosestToMouse = true, -- Default to true
     HeadSize = 15,
     HitboxExpanderEnabled = false,
@@ -398,6 +695,80 @@ local Configuration = {
         Distance = 500,
     }
 }
+
+local lockedTarget = nil -- Add this after your Configuration table
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1
+FOVCircle.NumSides = 100
+FOVCircle.Radius = Configuration.FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = Configuration.ShowFOV
+FOVCircle.ZIndex = 999
+FOVCircle.Transparency = 1
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+
+-- Add this after your FOV circle creation
+RunService.RenderStepped:Connect(function()
+    local mouseLocation = UserInputService:GetMouseLocation()
+    FOVCircle.Position = mouseLocation
+    FOVCircle.Visible = Configuration.ShowFOV and Configuration.Aimbot
+end)
+
+-- Add this new RenderStepped connection for player attachment
+RunService.RenderStepped:Connect(function()
+    if AttachedToPlayer and SelectedPlayer and SelectedPlayer.Character and LocalPlayer.Character then
+        local targetRoot = SelectedPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local localRoot = LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+        
+        if targetRoot and localRoot then
+            -- Calculate the position behind the target player
+            local targetCFrame = targetRoot.CFrame
+            local behind = targetCFrame.lookVector * -AttachmentOffset.Z
+            local right = targetCFrame.rightVector * AttachmentOffset.X
+            local up = targetCFrame.upVector * AttachmentOffset.Y
+            
+            -- Calculate the target position
+            local targetPosition = CFrame.new(
+                targetRoot.Position + behind + right + up,
+                targetRoot.Position
+            )
+            
+            -- Smooth transition to the target position
+            local smoothPosition = LastPosition:Lerp(targetPosition, TransitionSpeed)
+            
+            -- Update the player's position
+            localRoot.CFrame = smoothPosition
+            
+            -- Store the last position
+            LastPosition = smoothPosition
+            
+            -- Add velocity dampening to prevent flinging
+            if localRoot:FindFirstChild("BodyVelocity") then
+                localRoot.BodyVelocity:Destroy()
+            end
+            
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.MaxForce = Vector3.new(1000000, 1000000, 1000000)
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocity.Parent = localRoot
+        end
+    else
+        LastPosition = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') and 
+            LocalPlayer.Character.HumanoidRootPart.CFrame or CFrame.new()
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if NoClipping and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
 
 local ESPObjects = {}
 
@@ -434,14 +805,14 @@ Boxes.MainLeft:AddLabel('Aimbot Keybind'):AddKeyPicker('AimbotKey', {
     end
 })
 
--- Additional Configurations
-Boxes.MainLeft:AddToggle('OnePressAimingMode', {
-    Text = 'One-Press Mode',
-    Default = false,
-    Tooltip = 'Uses the One-Press Mode instead of the Holding Mode'
+Boxes.MainLeft:AddToggle('WallCheck', {
+    Text = 'Wall Check',
+    Default = true,
+    Tooltip = 'Only aim at visible players'
 }):OnChanged(function(Value)
-    Configuration.OnePressAimingMode = Value
+    Configuration.WallCheck = Value
 end)
+
 
 Boxes.MainLeft:AddDropdown('AimMode', {
     Values = { "Camera" },
@@ -451,6 +822,41 @@ Boxes.MainLeft:AddDropdown('AimMode', {
     Tooltip = 'Changes the Aim Mode'
 }):OnChanged(function(Value)
     Configuration.AimMode = Value
+end)
+
+-- FOV Circle Toggle
+Boxes.MainLeft:AddToggle('ShowFOV', {
+    Text = 'Show FOV Circle',
+    Default = true,
+    Tooltip = 'Shows the FOV radius circle'
+}):OnChanged(function(Value)
+    Configuration.ShowFOV = Value
+    FOVCircle.Visible = Value and Configuration.Aimbot
+end)
+
+-- FOV Radius Slider
+Boxes.MainLeft:AddSlider('FOVRadius', {
+    Text = 'FOV Radius',
+    Default = 100,
+    Min = 10,
+    Max = 500,
+    Rounding = 1,
+    Tooltip = 'Adjusts the FOV circle radius'
+}):OnChanged(function(Value)
+    Configuration.FOVRadius = Value
+    FOVCircle.Radius = Value
+end)
+
+-- Max Aimbot Distance Slider
+Boxes.MainLeft:AddSlider('MaxAimbotDistance', {
+    Text = 'Max Aimbot Distance',
+    Default = 450,
+    Min = 10,
+    Max = 5000,
+    Rounding = 1,
+    Tooltip = 'Maximum distance for aimbot to target players'
+}):OnChanged(function(Value)
+    Configuration.MaxAimbotDistance = Value
 end)
 
 Boxes.MainLeft:AddSlider('Sensitivity', {
@@ -507,19 +913,16 @@ Boxes.MainLeft:AddToggle('AimClosestToMouse', {
     Configuration.AimClosestToMouse = Value
 end)
 
--- Hitbox Expander Toggle
-Boxes.MainRight:AddToggle('HitboxEnabled', {
+-- Move these controls to the new HitboxSection
+Boxes.HitboxSection:AddToggle('HitboxExpanderEnabled', {
     Text = 'Enable Hitbox Expander',
     Default = false,
-    Tooltip = 'Toggles the hitbox expander functionality'
+    Tooltip = 'Expands the hitbox of the target'
 }):OnChanged(function(Value)
     Configuration.HitboxExpanderEnabled = Value
 end)
 
--- Head Size Slider
--- Remove this from MainLeft
--- Add to MainRight after the HitboxEnabled toggle
-Boxes.MainRight:AddSlider('HeadSize', {
+Boxes.HitboxSection:AddSlider('HeadSize', {
     Text = 'Head Size',
     Default = 15,
     Min = 1,
@@ -530,54 +933,6 @@ Boxes.MainRight:AddSlider('HeadSize', {
     Configuration.HeadSize = Value
 end)
 
--- ESP Toggle
-ESPBoxes.ESPLeft:AddToggle('ESPEnabled', {
-    Text = 'Enable ESP',
-    Default = false,
-    Tooltip = 'Enables ESP features'
-}):OnChanged(function(Value)
-    Configuration.ESPEnabled = Value
-    if not Value then
-        for _, esp in pairs(ESPObjects) do
-            esp:Remove()
-        end
-        ESPObjects = {}
-    end
-end)
-
--- ESP Box Toggle
-ESPBoxes.ESPLeft:AddToggle('ESPBox', {
-    Text = 'Box',
-    Default = true,
-    Tooltip = 'Shows a box around the player'
-}):OnChanged(function(Value)
-    Configuration.ESPSettings.Box = Value
-end)
-
--- ESP Name Toggle
-ESPBoxes.ESPLeft:AddToggle('ESPName', {
-    Text = 'Name',
-    Default = true,
-    Tooltip = 'Shows the name of the player'
-}):OnChanged(function(Value)
-    Configuration.ESPSettings.Name = Value
-end)
-
--- ESP Distance Slider
-ESPBoxes.ESPLeft:AddSlider('ESPDistance', {
-    Text = 'Distance',
-    Default = 500,
-    Min = 100,
-    Max = 1000,
-    Rounding = 1,
-    Tooltip = 'Sets the maximum distance for ESP'
-}):OnChanged(function(Value)
-    Configuration.ESPSettings.Distance = Value
-end)
-
-local function ReconnectGunMods()
-    ConnectGunMods()
-end
 
 local function TPWalk(speed)
     if not TPWalking then return end
@@ -694,6 +1049,66 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+local function IsTargetVisible(targetPart)
+    if not Configuration.WallCheck then return true end
+    
+    local character = game.Players.LocalPlayer.Character
+    if not character then return false end
+    
+    local head = character:FindFirstChild("Head")
+    if not head then return false end
+    
+    -- Create ray parameters
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = {character, targetPart.Parent}
+    
+    -- Simple line of sight check
+    local direction = (targetPart.Position - head.Position)
+    local ray = workspace:Raycast(head.Position, direction.Unit * direction.Magnitude, rayParams)
+    
+    -- If no ray hit or ray hit the target, they're visible
+    return not ray or ray.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+-- Modified getClosestPlayerToMouse function
+local function getClosestPlayerToMouse()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local mouseLocation = UserInputService:GetMouseLocation()
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and 
+           player.Character and 
+           player.Character:FindFirstChild(Configuration.AimPart) then
+            
+            local targetPart = player.Character[Configuration.AimPart]
+            -- Check visibility first
+            if IsTargetVisible(targetPart) then
+                local screenPoint = Camera:WorldToScreenPoint(targetPart.Position)
+                
+                -- Only proceed if target is on screen
+                if screenPoint.Z > 0 then
+                    local mouseDistance = (Vector2.new(screenPoint.X, screenPoint.Y) - mouseLocation).Magnitude
+                    
+                    -- Check distance and FOV
+                    if mouseDistance <= Configuration.FOVRadius then
+                        local actualDistance = (targetPart.Position - 
+                                             Players.LocalPlayer.Character[Configuration.AimPart].Position).Magnitude
+                        
+                        if actualDistance <= Configuration.MaxAimbotDistance and mouseDistance < shortestDistance then
+                            closestPlayer = player
+                            shortestDistance = mouseDistance
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
 -- Function to get the closest player to the mouse
 local function getClosestPlayerToMouse()
     local closestPlayer = nil
@@ -701,12 +1116,43 @@ local function getClosestPlayerToMouse()
     local mouseLocation = UserInputService:GetMouseLocation()
     
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild(Configuration.AimPart) then
-            local screenPoint = Camera:WorldToScreenPoint(player.Character[Configuration.AimPart].Position)
-            local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - mouseLocation).Magnitude
-            if distance < shortestDistance then
-                closestPlayer = player
-                shortestDistance = distance
+        if player ~= Players.LocalPlayer and 
+           player.Character and 
+           player.Character:FindFirstChild(Configuration.AimPart) then
+            
+            local targetPart = player.Character[Configuration.AimPart]
+            local screenPoint, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            
+            -- Only proceed if the target is on screen
+            if onScreen then
+                local mouseDistance = (Vector2.new(screenPoint.X, screenPoint.Y) - mouseLocation).Magnitude
+                
+                -- Check if within FOV
+                if mouseDistance <= Configuration.FOVRadius then
+                    -- Wall check
+                    if Configuration.WallCheck then
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+                        rayParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
+                        
+                        local rayOrigin = Camera.CFrame.Position
+                        local rayDirection = (targetPart.Position - rayOrigin).Unit
+                        local rayDistance = (targetPart.Position - rayOrigin).Magnitude
+                        
+                        local rayResult = workspace:Raycast(rayOrigin, rayDirection * rayDistance, rayParams)
+                        
+                        -- Skip this player if they're behind a wall
+                        if rayResult and not rayResult.Instance:IsDescendantOf(player.Character) then
+                            continue
+                        end
+                    end
+                    
+                    -- If we get here, the player is either visible or wall check is off
+                    if mouseDistance < shortestDistance then
+                        closestPlayer = player
+                        shortestDistance = mouseDistance
+                    end
+                end
             end
         end
     end
@@ -759,40 +1205,179 @@ local function createBoxESP(player)
         end
     end
 
-    RunService.RenderStepped:Connect(updateBox)
+   RunService.RenderStepped:Connect(function()
+    -- Update FOV Circle visibility
+    FOVCircle.Visible = Configuration.ShowFOV and Configuration.Aimbot
+    
+    -- Rest of your existing RenderStepped code...
+end)
 
     return box
 end
 
--- Function to create a name ESP
-local function createNameESP(player)
-    local nameTag = Drawing.new("Text")
-    nameTag.Size = 16
-    nameTag.Color = Color3.new(1, 1, 1)
-    nameTag.Outline = true
-    nameTag.Center = true
-    nameTag.Transparency = 1
-    nameTag.Text = player.Name
-
-    local function updateNameTag()
-        if Configuration.ESPEnabled and Configuration.ESPSettings.Name and player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local head = player.Character.Head
-            local headPos, headVis = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-            if headVis then
-                nameTag.Position = Vector2.new(headPos.X, headPos.Y - 30)
-                nameTag.Visible = true
-            else
-                nameTag.Visible = false
-            end
-        else
-            nameTag.Visible = false
+local function GetPlayerList()
+    local playerList = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            table.insert(playerList, player.Name)
         end
     end
-
-    RunService.RenderStepped:Connect(updateNameTag)
-
-    return nameTag
+    return playerList
 end
+
+local SelectedPlayer = nil
+PlayerBox:AddDropdown('PlayerSelect', {
+    Values = GetPlayerList(),
+    Default = 1,
+    Multi = false,
+    Text = 'Select Player',
+    Tooltip = 'Choose a player to teleport to',
+})
+
+
+
+-- Place this after the PlayerBox:AddDropdown
+Options.PlayerSelect:OnChanged(function()
+    local selectedName = Options.PlayerSelect.Value
+    if selectedName and AttachedToPlayer then
+        SelectedPlayer = Players:FindFirstChild(selectedName)
+    end
+end)
+
+
+
+PlayerBox:AddToggle('AttachToPlayer', {
+    Text = 'Attach to Player',
+    Default = false,
+    Tooltip = 'Toggle to attach/follow the selected player',
+    Callback = function(Value)
+        AttachedToPlayer = Value
+        
+        if Value then
+            -- Save position before attaching
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                SavedPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
+            end
+            
+            -- Setup when attaching
+            local selectedName = Options.PlayerSelect.Value
+            if selectedName then
+                SelectedPlayer = Players:FindFirstChild(selectedName)
+                if SelectedPlayer then
+                    ToggleNoclip(true)
+                end
+            end
+        else
+            -- Reset when detaching
+            SelectedPlayer = nil
+            ToggleNoclip(false)
+            
+            -- Return to saved position
+            if SavedPosition and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = SavedPosition
+                
+                -- Reset velocity to prevent falling
+                LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+                
+                -- Force character state update
+                local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+                end
+            end
+            
+            -- Clear saved position
+            SavedPosition = nil
+            
+            -- Reset camera if it was changed
+            if LastCameraSubject then
+                Camera.CameraSubject = LastCameraSubject
+                LastCameraSubject = nil
+            end
+            CameraLocked = false
+        end
+    end
+})
+
+PlayerBox:AddButton('Spectate Player', function()
+    -- First disable normal attach if it's enabled
+    if Toggles.AttachToPlayer.Value then
+        Toggles.AttachToPlayer:SetValue(false)
+    end
+    
+    -- Save current position before spectating
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        SavedPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
+    end
+    
+    -- Get selected player
+    local selectedName = Options.PlayerSelect.Value
+    if selectedName then
+        SelectedPlayer = Players:FindFirstChild(selectedName)
+        if SelectedPlayer then
+            -- Enable attachment with max distance
+            AttachedToPlayer = true
+            ToggleNoclip(true)
+            
+            -- Set max distance
+            AttachmentOffset = Vector3.new(0, 1000, 1000)
+            
+            -- Setup camera
+            LastCameraSubject = Camera.CameraSubject
+            Camera.CameraSubject = SelectedPlayer.Character:FindFirstChild("Humanoid")
+            CameraLocked = true
+        end
+    end
+end)
+
+-- Modified unspectate button
+PlayerBox:AddButton('Stop Spectating', function()
+    AttachedToPlayer = false
+    ToggleNoclip(false)
+    SelectedPlayer = nil
+    
+    -- Reset camera
+    if LastCameraSubject then
+        Camera.CameraSubject = LastCameraSubject
+        LastCameraSubject = nil
+    end
+    CameraLocked = false
+    
+    -- Reset attachment offset
+    AttachmentOffset = Vector3.new(0, 0, 2)
+    
+    -- Return to saved position
+    if SavedPosition and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = SavedPosition
+        
+        -- Reset velocity to prevent falling
+        LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        
+        -- Force character state update
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+        end
+    end
+    
+    -- Clear saved position
+    SavedPosition = nil
+end)
+
+
+-- Update player list when players join/leave
+Players.PlayerAdded:Connect(function(player)
+    Options.PlayerSelect.Values = GetPlayerList()
+    Options.PlayerSelect:SetValues()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    Options.PlayerSelect.Values = GetPlayerList()
+    Options.PlayerSelect:SetValues()
+end)
+
+
+
 
 -- Function to draw ESP
 local function drawESP()
@@ -813,6 +1398,71 @@ local function drawESP()
     end
 end
 
+local function FullCharacterReset()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    -- Reset all velocity and physics objects
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        -- Remove all physics objects
+        for _, child in pairs(humanoidRootPart:GetChildren()) do
+            if child:IsA("BodyMover") or child:IsA("BodyGyro") or child:IsA("BodyVelocity") or 
+               child:IsA("BodyPosition") or child:IsA("BodyForce") then
+                child:Destroy()
+            end
+        end
+        humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        humanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+    end
+
+    -- Reset humanoid
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        -- Store current position
+        local currentPos = humanoidRootPart and humanoidRootPart.Position
+        
+        -- Reset all humanoid states
+        humanoid.PlatformStand = false
+        humanoid.Sit = false
+        humanoid.AutoRotate = true
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics, true)
+        humanoid:ChangeState(Enum.HumanoidStateType.Landing)
+        
+        -- Reset movement
+        humanoid.WalkSpeed = 16
+        humanoid.JumpPower = 50
+        
+        -- Respawn character at current position
+        if currentPos then
+            task.spawn(function()
+                task.wait(0.1)
+                if humanoidRootPart then
+                    humanoidRootPart.CFrame = CFrame.new(currentPos + Vector3.new(0, 3, 0))
+                end
+            end)
+        end
+    end
+    
+    -- Re-enable all collisions
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
+    end
+end
+        
 -- RenderStepped loop for aimbot functionality, hitbox expander, and ESP
 RunService.RenderStepped:Connect(function()
     if Configuration.HitboxExpanderEnabled then
@@ -838,15 +1488,22 @@ RunService.RenderStepped:Connect(function()
         end
         
         if target and target.Character and target.Character:FindFirstChild(Configuration.AimPart) then
-            local camera = Camera
-            local targetPosition = target.Character[Configuration.AimPart].Position
-            if Configuration.AimMode == "Camera" then
-                if Configuration.UseSensitivity then
-                    local currentCFrame = camera.CFrame
-                    local targetCFrame = CFrame.new(camera.CFrame.Position, targetPosition)
-                    camera.CFrame = currentCFrame:Lerp(targetCFrame, Configuration.Sensitivity / 100)
-                else
-                    camera.CFrame = CFrame.new(camera.CFrame.Position, targetPosition)
+            local targetPart = target.Character[Configuration.AimPart]
+            local _, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            
+            -- Only aim if target is on screen
+            if onScreen then
+                local camera = Camera
+                local targetPosition = targetPart.Position
+                
+                if Configuration.AimMode == "Camera" then
+                    if Configuration.UseSensitivity then
+                        local currentCFrame = camera.CFrame
+                        local targetCFrame = CFrame.new(camera.CFrame.Position, targetPosition)
+                        camera.CFrame = currentCFrame:Lerp(targetCFrame, Configuration.Sensitivity / 100)
+                    else
+                        camera.CFrame = CFrame.new(camera.CFrame.Position, targetPosition)
+                    end
                 end
             end
         end
@@ -854,6 +1511,41 @@ RunService.RenderStepped:Connect(function()
     
     if Configuration.ESPEnabled then
         drawESP()
+    end
+end)
+
+-- Add a separate RenderStepped connection for the attachment feature
+RunService.RenderStepped:Connect(function()
+    if AttachedToPlayer and SelectedPlayer and SelectedPlayer.Character and LocalPlayer.Character then
+        local targetRoot = SelectedPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local localRoot = LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        
+        if targetRoot and localRoot then
+            -- Set character to noclip state
+            if humanoid then
+                humanoid:ChangeState(11) -- 11 is the noclip state
+            end
+            
+            -- Calculate the position behind the target player
+            local targetCFrame = targetRoot.CFrame
+            local behind = targetCFrame.lookVector * -AttachmentOffset.Z
+            local right = targetCFrame.rightVector * AttachmentOffset.X
+            local up = targetCFrame.upVector * AttachmentOffset.Y
+            
+            -- Set the player's position directly without lerping
+            localRoot.CFrame = CFrame.new(
+                targetRoot.Position + behind + right + up,
+                targetRoot.Position
+            )
+            
+            -- Cancel velocity to prevent flinging
+            localRoot.Velocity = Vector3.new(0, 0, 0)
+            localRoot.RotVelocity = Vector3.new(0, 0, 0)
+            
+            -- Maintain noclip state
+            ToggleNoclip(true)
+        end
     end
 end)
 
