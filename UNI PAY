@@ -46,6 +46,18 @@ local BodyVelocity
 local BodyGyro
 local Keybinds = {}
 
+local animationTrack = nil
+
+-- Function to setup the animation
+local function setupAnimation()
+    local humanoid = game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+    if humanoid then
+        local anim = Instance.new("Animation")
+        anim.AnimationId = "rbxassetid://5918726674"
+        animationTrack = humanoid:LoadAnimation(anim)
+    end
+end
+
 local function ToggleFeature(name)
     local toggle = Toggles[name]
     if toggle then
@@ -140,14 +152,22 @@ Boxes.FuckSection:AddToggle('FuckPlayer', {
         FuckPlayerEnabled = Value
         
         if Value then
-            -- Enable attachment system first
+            -- Setup animation if not already setup
+            if not animationTrack then
+                setupAnimation()
+            end
+            
+            -- Play the animation
+            if animationTrack then
+                animationTrack:Play()
+            end
+            
+            -- Your existing attach system code
             local selectedName = Options.PlayerSelect.Value
             if selectedName then
                 SelectedPlayer = Players:FindFirstChild(selectedName)
                 if SelectedPlayer then
-                    -- Use the existing attach system
                     if not AttachedToPlayer then
-                        -- Save position before starting
                         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                             SavedPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
                         end
@@ -157,7 +177,12 @@ Boxes.FuckSection:AddToggle('FuckPlayer', {
                 end
             end
         else
-            -- Cleanup and unfreeze
+            -- Stop the animation
+            if animationTrack then
+                animationTrack:Stop()
+            end
+            
+            -- Your existing cleanup code
             FuckPlayerEnabled = false
             AttachedToPlayer = false
             ToggleNoclip(false)
@@ -167,21 +192,18 @@ Boxes.FuckSection:AddToggle('FuckPlayer', {
                 local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
                 
                 if humanoidRootPart then
-                    -- Remove any BodyVelocity
                     for _, child in pairs(humanoidRootPart:GetChildren()) do
                         if child:IsA("BodyVelocity") then
                             child:Destroy()
                         end
                     end
                     
-                    -- Return to saved position
                     if SavedPosition then
                         humanoidRootPart.CFrame = SavedPosition
                     end
                 end
 
                 if humanoid then
-                    -- Just reset jump state
                     humanoid.JumpPower = 50
                     humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     task.wait(0.1)
@@ -290,13 +312,8 @@ MovementBox:AddSlider('JumpPower', {
 
 local PlayerBox = Tabs.Players:AddLeftGroupbox('Player Options')
 
-local DevBox = Tabs.Players:AddRightGroupbox('MUST READ')
 
--- Format and display date/time and user info
-DevBox:AddLabel('If you enable "Fuck player" and')
-DevBox:AddLabel('then enable "attach" enable and')
-DevBox:AddLabel('disable fuck player to fix being')
-DevBox:AddLabel('frozen.')
+
 -- Create GroupBoxes for ESP Tab
 -- Keep your existing ESPBoxes declaration
 local ESPBoxes = {
