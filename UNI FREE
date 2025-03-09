@@ -15,12 +15,15 @@ local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local UIS = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
 
-local animationTrack = nil
-
 local FuckPlayerEnabled = false
 local OscillationSpeed = 2
 local OscillationDistance = 1.1
 local OscillationOffset = 0
+
+local animationTrack = nil
+local R15_ANIMATION_ID = "rbxassetid://5918726674"
+local R6_ANIMATION_ID = "rbxassetid://148840371"
+
 
 local SavedPosition = nil
 local NoClipping = false
@@ -48,15 +51,6 @@ local BodyVelocity
 local BodyGyro
 local Keybinds = {}
 
-local function setupAnimation()
-    local humanoid = game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
-    if humanoid then
-        local anim = Instance.new("Animation")
-        anim.AnimationId = "rbxassetid://5918726674"
-        animationTrack = humanoid:LoadAnimation(anim)
-    end
-end
-
 local function ToggleFeature(name)
     local toggle = Toggles[name]
     if toggle then
@@ -73,6 +67,28 @@ local function ToggleNoclip(enabled)
                 part.CanCollide = not enabled
             end
         end
+    end
+end
+
+local function setupAnimation()
+    local character = game.Players.LocalPlayer.Character
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        -- Check if character is R6 or R15
+        local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+
+        local anim = Instance.new("Animation")
+        -- Use appropriate animation ID based on rig type
+        anim.AnimationId = isR15 and R15_ANIMATION_ID or R6_ANIMATION_ID
+        
+        -- Remove existing animation track if it exists
+        if animationTrack then
+            animationTrack:Stop()
+            animationTrack:Destroy()
+        end
+        
+        -- Load new animation
+        animationTrack = humanoid:LoadAnimation(anim)
     end
 end
 
@@ -151,14 +167,14 @@ Boxes.FuckSection:AddToggle('FuckPlayer', {
         FuckPlayerEnabled = Value
         
         if Value then
-            -- Setup animation if not already setup
-            if not animationTrack then
-                setupAnimation()
-            end
+            -- Setup animation (this will handle both R6 and R15)
+            setupAnimation()
             
             -- Play the animation
             if animationTrack then
                 animationTrack:Play()
+                -- Optional: Make the animation looped
+                animationTrack.Looped = true
             end
             
             -- Your existing attach system code
@@ -215,6 +231,19 @@ Boxes.FuckSection:AddToggle('FuckPlayer', {
         end
     end
 })
+
+-- Add character added connection to handle respawns
+LocalPlayer.CharacterAdded:Connect(function()
+    if FuckPlayerEnabled then
+        -- Re-setup animation when character respawns
+        task.wait(0.5) -- Wait for character to fully load
+        setupAnimation()
+        if animationTrack then
+            animationTrack:Play()
+            animationTrack.Looped = true
+        end
+    end
+end)
 
 Boxes.FuckSection:AddSlider('OscillationSpeed', {
     Text = 'Fuck Speed',
