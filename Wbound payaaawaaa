@@ -35,6 +35,17 @@ local AttachmentOffset = Vector3.new(0, 0, 2)
 local LastPosition = CFrame.new()
 local TransitionSpeed = 0.5
 
+local GunModsConfig = {
+    enabled = false,
+    lastUpdate = 0,
+    updateCooldown = 0.2, -- Increased cooldown
+    modifiedGuns = {},
+    initialized = false,
+    lastGC = 0,
+    gcCooldown = 5, -- Garbage collection cooldown (5 seconds)
+    maxCachedGuns = 10 -- Maximum number of cached guns
+}
+
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
@@ -48,6 +59,8 @@ local Flying = false
 local BodyVelocity
 local BodyGyro
 local Keybinds = {}
+
+
 
 local function ToggleFeature(name)
     local toggle = Toggles[name]
@@ -66,6 +79,31 @@ local function ToggleNoclip(enabled)
             end
         end
     end
+end
+
+local function InitializeGunMods()
+    if GunModsConfig.initialized then return end
+    
+    -- Clear any existing connections
+    if GunModsConfig.characterAddedConnection then
+        GunModsConfig.characterAddedConnection:Disconnect()
+    end
+    
+     -- Setup character added handling
+    GunModsConfig.characterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(character)
+        -- Clear existing gun cache
+        table.clear(GunModsConfig.modifiedGuns)
+        
+        -- Wait for character to be fully loaded
+        character:WaitForChild("Humanoid")
+        task.wait(1) -- Additional wait to ensure weapons are loaded
+        
+        -- Force refresh gun modifications
+        GunModsConfig.lastUpdate = 0
+        ModifyGuns(true) -- Force update
+    end)
+    
+    GunModsConfig.initialized = true
 end
 
 -- Create a custom cursor with improved settings
@@ -174,108 +212,200 @@ GunModBoxes.GunModsLeft:AddToggle('NoFireRate', {
     Tooltip = 'Removes weapon fire rate limits'
 })
 
-local function ModifyGuns()
-    local currentTime = tick()
-    if currentTime - lastUpdate < updateCooldown then return end
-    lastUpdate = currentTime
 
-    -- Only get GC objects if we haven't cached any guns yet
-    if next(modifiedGuns) == nil then
+local function FindGuns()
+    local currentTime = tick()
+
+ if currentTime - GunModsConfig.lastGC >= GunModsConfig.gcCooldown then
+        GunModsConfig.lastGC = currentTime
+        table.clear(GunModsConfig.modifiedGuns)
+        
+        local count = 0
         for _, v in next, getgc(true) do
-            if type(v) == "table" and rawget(v, "Shots") then
-                modifiedGuns[v] = true
+            if count >= GunModsConfig.maxCachedGuns then break end
+            if type(v) == "table" and rawget(v, "Shots") and rawget(v, "GunStats") then
+                count = count + 1
+                GunModsConfig.modifiedGuns[v] = true
             end
         end
     end
+    
+    return GunModsConfig.modifiedGuns
+end
 
-    -- Process cached guns
-    for gunTable, _ in pairs(modifiedGuns) do
-        -- Validate gun table still exists and has required properties
-        if type(gunTable) == "table" and rawget(gunTable, "Shots") then
-            pcall(function()
-                local gunStats = rawget(gunTable, "GunStats")
-                if not gunStats then return end
+-- Modified gun modification function with forced update option
+local function ModifyGuns(forceUpdate)
+    if not GunModsConfig.initialized then
+        InitializeGunMods()
+    end
 
-                -- Cache toggle states to avoid repeated lookups
-                local maxShots = Toggles.MaxShots.Value
-                local infAmmo = Toggles.InfiniteAmmo.Value
-                local noSpread = Toggles.NoSpread.Value
-                local noCooldowns = Toggles.NoCooldowns.Value
-                local noRecoil = Toggles.NoRecoil.Value
-                local noFireRate = Toggles.NoFireRate.Value
+    local currentTime = tick()
+    if not forceUpdate and currentTime - GunModsConfig.lastUpdate < GunModsConfig.updateCooldown then 
+        return 
+    end
+    GunModsConfig.lastUpdate = currentTime
 
-                -- Batch modifications to reduce property updates
-                if maxShots then
-                    rawset(gunStats, "MaxShots", rawget(gunTable, "TotalAmmoClient"))
-                end
+    -- Always refresh gun cache to ensure we have latest references
+    local oldGunCount = #GunModsConfig.modifiedGuns
+    table.clear(GunModsConfig.modifiedGuns)
+    
+    -- Get fresh gun references
+    for _, v in next, getgc(true) do
+        if type(v) == "table" and rawget(v, "Shots") and rawget(v, "GunStats") then
+            table.insert(GunModsConfig.modifiedGuns, v)
+        end
+    end
 
-                if infAmmo and gunTable.AmmoVal and gunTable.AmmoVal.Clip then
+    -- Process all guns
+    for _, gunTable in ipairs(GunModsConfig.modifiedGuns) do
+        pcall(function()
+            local gunStats = rawget(gunTable, "GunStats")
+            if not gunStats then return end
+
+            -- Cache toggle states
+            local maxShots = Toggles.MaxShots and Toggles.MaxShots.Value
+            local infAmmo = Toggles.InfiniteAmmo and Toggles.InfiniteAmmo.Value
+            local noSpread = Toggles.NoSpread and Toggles.NoSpread.Value
+            local noCooldowns = Toggles.NoCooldowns and Toggles.NoCooldowns.Value
+            local noRecoil = Toggles.NoRecoil and Toggles.NoRecoil.Value
+            local noFireRate = Toggles.NoFireRate and Toggles.NoFireRate.Value
+
+            -- Apply modifications with additional validation
+            if maxShots and type(gunTable.TotalAmmoClient) == "number" then
+                rawset(gunStats, "MaxShots", gunTable.TotalAmmoClient)
+            end
+
+            if infAmmo then
+                if type(gunTable.AmmoVal) == "table" and type(gunTable.AmmoVal.Clip) == "table" then
                     if gunTable.AmmoVal.Clip.Value < gunStats.MaxShots then
                         rawset(gunTable, "Shots", gunStats.MaxShots)
                         gunTable.AmmoVal.Clip.Value = gunStats.MaxShots
-                        rawset(gunTable, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
+                        if LocalPlayer.Stats and LocalPlayer.Stats.AmmoCapacityLevel then
+                            rawset(gunTable, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
+                        end
                     end
                 end
+            end
 
-                if noSpread and gunStats.ZoomAccuracy ~= 0 then
-                    rawset(gunStats, "ZoomAccuracy", 0)
-                    rawset(gunStats, "HipFireAccuracy", 0)
-                    rawset(gunStats, "FiringOffset", CFrame.new(Vector3.new(0, 0, 0)))
-                end
+            if noSpread then
+                rawset(gunStats, "ZoomAccuracy", 0)
+                rawset(gunStats, "HipFireAccuracy", 0)
+                rawset(gunStats, "FiringOffset", CFrame.new())
+            end
 
-                if noCooldowns and gunStats.ReloadSpeed ~= 0 then
-                    local stats = {
-                        ReloadSpeed = 0,
-                        equipSpeed = 0,
-                        EquipDelay = 0,
-                        ReloadAnimationSpeed = 0,
-                        InstantFireAnimation = true,
-                        prepSpeed = 0,
-                        ZoomFOVSpeed = 0
-                    }
-                    for key, value in pairs(stats) do
-                        rawset(gunStats, key, value)
-                    end
-                    rawset(gunTable, "reloadManual", false)
+            if noCooldowns then
+                local cooldownProps = {
+                    ReloadSpeed = 0,
+                    equipSpeed = 0,
+                    EquipDelay = 0,
+                    ReloadAnimationSpeed = 0,
+                    prepSpeed = 0,
+                    ZoomFOVSpeed = 0
+                }
+                for prop, value in pairs(cooldownProps) do
+                    rawset(gunStats, prop, value)
                 end
+                rawset(gunStats, "InstantFireAnimation", true)
+                rawset(gunTable, "reloadManual", false)
+            end
 
-                if noRecoil then
-                    if not OldRecoilFunction then
-                        OldRecoilFunction = gunTable.shakeCam
-                    end
-                    if gunTable.shakeCam ~= OldRecoilFunction then
-                        rawset(gunTable, "shakeCam", function() return "RECOIL OFF" end)
-                    end
+            if noRecoil then
+                if not gunTable.originalShakeCam then
+                    gunTable.originalShakeCam = gunTable.shakeCam
                 end
+                rawset(gunTable, "shakeCam", function() return "RECOIL OFF" end)
+            end
 
-                if noFireRate then
-                    rawset(gunTable, "shotDebounce", false)
-                    rawset(gunTable, "Delay", 0)
-                end
-            end)
-        else
-            -- Remove invalid gun references from cache
-            modifiedGuns[gunTable] = nil
-        end
+            if noFireRate then
+                rawset(gunTable, "shotDebounce", false)
+                rawset(gunTable, "Delay", 0)
+            end
+        end)
     end
 end
 
-
--- Add this heartbeat connection for gun mods
+-- Setup heartbeat connection for continuous updates
 local gunModsConnection = RunService.Heartbeat:Connect(function()
-    if Toggles.MaxShots.Value or Toggles.InfiniteAmmo.Value or 
-       Toggles.NoSpread.Value or Toggles.NoCooldowns.Value or 
-       Toggles.NoRecoil.Value or Toggles.NoFireRate.Value then
+    if Toggles.MaxShots.Value or 
+       Toggles.InfiniteAmmo.Value or 
+       Toggles.NoSpread.Value or 
+       Toggles.NoCooldowns.Value or 
+       Toggles.NoRecoil.Value or 
+       Toggles.NoFireRate.Value then
         ModifyGuns()
     end
 end)
 
--- Add cleanup for the connection
-local oldUnload = Library.OnUnload
-Library.OnUnload = function()
+local function ApplyGunMods(gunTable, gunStats, modStates)
+    -- Skip if gun was already modified with same settings
+    if gunTable._lastModState == modStates then return end
+    
+    if modStates.maxShots and type(gunTable.TotalAmmoClient) == "number" then
+        rawset(gunStats, "MaxShots", gunTable.TotalAmmoClient)
+    end
+
+    if modStates.infAmmo and type(gunTable.AmmoVal) == "table" and type(gunTable.AmmoVal.Clip) == "table" then
+        if gunTable.AmmoVal.Clip.Value < gunStats.MaxShots then
+            rawset(gunTable, "Shots", gunStats.MaxShots)
+            gunTable.AmmoVal.Clip.Value = gunStats.MaxShots
+            if LocalPlayer.Stats and LocalPlayer.Stats.AmmoCapacityLevel then
+                rawset(gunTable, "TotalAmmoClient", LocalPlayer.Stats.AmmoCapacityLevel.CurrentAmount.Value)
+            end
+        end
+    end
+
+    if modStates.noSpread then
+        rawset(gunStats, "ZoomAccuracy", 0)
+        rawset(gunStats, "HipFireAccuracy", 0)
+        rawset(gunStats, "FiringOffset", CFrame.new())
+    end
+
+    if modStates.noCooldowns then
+        rawset(gunStats, "ReloadSpeed", 0)
+        rawset(gunStats, "equipSpeed", 0)
+        rawset(gunStats, "EquipDelay", 0)
+        rawset(gunStats, "ReloadAnimationSpeed", 0)
+        rawset(gunStats, "prepSpeed", 0)
+        rawset(gunStats, "ZoomFOVSpeed", 0)
+        rawset(gunStats, "InstantFireAnimation", true)
+        rawset(gunTable, "reloadManual", false)
+    end
+
+    if modStates.noRecoil then
+        if not gunTable.originalShakeCam then
+            gunTable.originalShakeCam = gunTable.shakeCam
+        end
+        rawset(gunTable, "shakeCam", function() return "RECOIL OFF" end)
+    end
+
+    if modStates.noFireRate then
+        rawset(gunTable, "shotDebounce", false)
+        rawset(gunTable, "Delay", 0)
+    end
+
+    -- Mark gun as modified with current settings
+    gunTable._lastModState = modStates
+end
+
+-- Initialize the system
+InitializeGunMods()
+
+-- Cleanup function
+local function CleanupGunMods()
+    if GunModsConfig.characterAddedConnection then
+        GunModsConfig.characterAddedConnection:Disconnect()
+    end
     if gunModsConnection then
         gunModsConnection:Disconnect()
     end
+    GunModsConfig.initialized = false
+    table.clear(GunModsConfig.modifiedGuns)
+end
+
+-- Add cleanup to the library's unload function
+local oldUnload = Library.OnUnload
+Library.OnUnload = function()
+    CleanupGunMods()
     if oldUnload then
         oldUnload()
     end
@@ -1069,6 +1199,17 @@ local function IsTargetVisible(targetPart)
     
     -- If no ray hit or ray hit the target, they're visible
     return not ray or ray.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+local function GetModStates()
+    return {
+        maxShots = Toggles.MaxShots and Toggles.MaxShots.Value,
+        infAmmo = Toggles.InfiniteAmmo and Toggles.InfiniteAmmo.Value,
+        noSpread = Toggles.NoSpread and Toggles.NoSpread.Value,
+        noCooldowns = Toggles.NoCooldowns and Toggles.NoCooldowns.Value,
+        noRecoil = Toggles.NoRecoil and Toggles.NoRecoil.Value,
+        noFireRate = Toggles.NoFireRate and Toggles.NoFireRate.Value
+    }
 end
 
 -- Modified getClosestPlayerToMouse function
