@@ -15,6 +15,10 @@ local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local UIS = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
 
+local FuckPlayerEnabled = false
+local OscillationSpeed = 2
+local OscillationDistance = 1.1
+local OscillationOffset = 0
 
 local SavedPosition = nil
 local NoClipping = false
@@ -123,8 +127,98 @@ local Tabs = {
 local Boxes = {
     MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
     MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
-    HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander') -- Add this new section
+    HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander'),
+    -- Add this new box
+    FuckSection = Tabs.Players:AddRightGroupbox('Fuck Settings')  -- New group box in Players tab
 }
+
+Boxes.FuckSection:AddToggle('FuckPlayer', {
+    Text = 'Fuck Player',
+    Default = false,
+    Tooltip = 'Toggle oscillating movement behind player',
+    Callback = function(Value)
+        FuckPlayerEnabled = Value
+        
+        if Value then
+            -- Enable attachment system first
+            local selectedName = Options.PlayerSelect.Value
+            if selectedName then
+                SelectedPlayer = Players:FindFirstChild(selectedName)
+                if SelectedPlayer then
+                    -- Use the existing attach system
+                    if not AttachedToPlayer then
+                        -- Save position before starting
+                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                            SavedPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
+                        end
+                        AttachedToPlayer = true
+                        ToggleNoclip(true)
+                    end
+                end
+            end
+        else
+            -- Cleanup and unfreeze
+            FuckPlayerEnabled = false
+            AttachedToPlayer = false
+            ToggleNoclip(false)
+            
+            if LocalPlayer.Character then
+                local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+                
+                if humanoidRootPart then
+                    -- Remove any BodyVelocity
+                    for _, child in pairs(humanoidRootPart:GetChildren()) do
+                        if child:IsA("BodyVelocity") then
+                            child:Destroy()
+                        end
+                    end
+                    
+                    -- Return to saved position
+                    if SavedPosition then
+                        humanoidRootPart.CFrame = SavedPosition
+                    end
+                end
+
+                if humanoid then
+                    -- Just reset jump state
+                    humanoid.JumpPower = 50
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    task.wait(0.1)
+                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end
+            
+            SavedPosition = nil
+            LastPosition = CFrame.new()
+        end
+    end
+})
+
+Boxes.FuckSection:AddSlider('OscillationSpeed', {
+    Text = 'Fuck Speed',
+    Default = 8,
+    Min = 0.1,
+    Max = 30,
+    Rounding = 1,
+    Tooltip = 'Speed of back and forth movement',
+    Compact = false,
+}):OnChanged(function(Value)
+    OscillationSpeed = Value
+end)
+
+
+Boxes.FuckSection:AddSlider('OscillationDistance', {
+    Text = 'Fuck Distance',
+    Default = 1.1,
+    Min = 1.1,  -- Changed minimum to 1.1
+    Max = 5,
+    Rounding = 2,
+    Tooltip = 'Distance of back and forth movement',
+    Compact = false,
+}):OnChanged(function(Value)
+    OscillationDistance = Value
+end)
 
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
 
@@ -357,6 +451,64 @@ local function cleanupESP()
     ESP.Players = {}
     ESP.NameLabels = {}
 end
+
+RunService.RenderStepped:Connect(function()
+    if AttachedToPlayer and SelectedPlayer and SelectedPlayer.Character and LocalPlayer.Character then
+        local targetRoot = SelectedPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local localRoot = LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        
+        if targetRoot and localRoot then
+            -- Set character to noclip state
+            if humanoid then
+                humanoid:ChangeState(11)
+            end
+            
+            -- Calculate the position behind the target player
+            local targetCFrame = targetRoot.CFrame
+            local behind = targetCFrame.lookVector * -AttachmentOffset.Z
+            local right = targetCFrame.rightVector * AttachmentOffset.X
+            local up = targetCFrame.upVector * AttachmentOffset.Y
+            
+            if FuckPlayerEnabled then
+                -- Use original oscillation method
+                OscillationOffset = math.sin(tick() * OscillationSpeed) * OscillationDistance
+                behind = targetCFrame.lookVector * -(2 + OscillationOffset)
+            end
+            
+            -- Set the player's position
+            local targetPosition = CFrame.new(
+                targetRoot.Position + behind + right + up,
+                targetRoot.Position
+            )
+            
+            -- Use smooth transition from attach system
+            local smoothPosition = LastPosition:Lerp(targetPosition, TransitionSpeed)
+            localRoot.CFrame = smoothPosition
+            LastPosition = smoothPosition
+            
+            -- Cleanup any existing physics objects
+            for _, child in pairs(localRoot:GetChildren()) do
+                if child:IsA("BodyVelocity") or child:IsA("BodyGyro") then
+                    child:Destroy()
+                end
+            end
+            
+            -- Add fresh velocity dampening
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.MaxForce = Vector3.new(1000000, 1000000, 1000000)
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocity.Parent = localRoot
+            
+            -- Maintain noclip state
+            ToggleNoclip(true)
+        end
+    elseif not AttachedToPlayer and not FuckPlayerEnabled then
+        -- Reset LastPosition when not attached
+        LastPosition = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') and 
+            LocalPlayer.Character.HumanoidRootPart.CFrame or CFrame.new()
+    end
+end)
 
 -- Add ESP controls to your existing ESP tab
 ESPBoxes.ESPLeft:AddToggle('ESP_Enabled', {
