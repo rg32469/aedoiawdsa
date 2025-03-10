@@ -9,8 +9,8 @@ local Camera = workspace.CurrentCamera
 local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
 
 local IdleHoverEnabled = true -- Toggle for idle hover
-local HoverAmplitude = 0.13 -- How high/low the hover goes
-local HoverFrequency = 3.5 -- How fast the hover cycles
+local HoverAmplitude = 6.55 -- How high/low the hover goes
+local HoverFrequency = 3 -- How fast the hover cycles
 local lastHoverTime = tick() -- Track time for smooth hover
 
 -- Variables for both features
@@ -124,8 +124,16 @@ local function setupFlyAnimation()
         local anim = Instance.new("Animation")
         anim.AnimationId = FlyAnimations[currentFlyAnim]
         flyAnimTrack = humanoid:LoadAnimation(anim)
+        
+        -- Set animation priority to prevent interruption
+        if flyAnimTrack then
+            flyAnimTrack.Priority = Enum.AnimationPriority.Action4 -- Highest priority
+            flyAnimTrack.Looped = true
+        end
     end
 end
+
+
 
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
@@ -1041,9 +1049,9 @@ MovementBox:AddToggle('IdleHover', {
 
 MovementBox:AddSlider('HoverHeight', {
     Text = 'Hover Height',
-    Default = 0.13,
-    Min = 0.1,
-    Max = 2.0,
+    Default = 6.55,
+    Min = 4,
+    Max = 20,
     Rounding = 2,
     Compact = false,
     Callback = function(Value)
@@ -1054,8 +1062,8 @@ MovementBox:AddSlider('HoverHeight', {
 MovementBox:AddSlider('HoverSpeed', {
     Text = 'Hover Speed',
     Default = 3,
-    Min = 0.5,
-    Max = 5.0,
+    Min = 1,
+    Max = 10,
     Rounding = 1,
     Compact = false,
     Callback = function(Value)
@@ -1109,25 +1117,30 @@ RunService.Heartbeat:Connect(function()
             isMoving = true
         end
 
-        -- Add idle hover when not moving
+        -- Scale movement velocity with fly speed
+        Velocity = Velocity * Options.FlySpeed.Value
+
+        -- Add idle hover when not moving (independent of fly speed)
         if not isMoving and IdleHoverEnabled then
             local currentTime = tick()
             local timePassed = currentTime - lastHoverTime
-            -- Create smooth sinusoidal hover motion
+            
+            -- Create hover motion without fly speed influence
             local hoverOffset = math.sin(timePassed * HoverFrequency) * HoverAmplitude
-            Velocity += Vector3.new(0, hoverOffset, 0)
+            local hoverVelocity = Vector3.new(0, hoverOffset, 0)
             
-            -- Add slight forward/backward sway for more realistic motion
+            -- Add subtle sway without fly speed influence
             local swayOffset = math.sin(timePassed * HoverFrequency * 0.5) * (HoverAmplitude * 0.3)
-            Velocity += CamCFrame.LookVector * swayOffset
-            
-            -- Add subtle side-to-side motion
             local lateralOffset = math.sin(timePassed * HoverFrequency * 0.75) * (HoverAmplitude * 0.2)
-            Velocity += CamCFrame.RightVector * lateralOffset
+            
+            -- Add hover and sway velocities separately from main movement
+            Velocity = Velocity + hoverVelocity
+            Velocity = Velocity + (CamCFrame.LookVector * swayOffset)
+            Velocity = Velocity + (CamCFrame.RightVector * lateralOffset)
         end
 
         local TweenInfo = TweenInfo.new(0.5)
-        TweenService:Create(BodyVelocity, TweenInfo, {Velocity = Velocity * Options.FlySpeed.Value}):Play()
+        TweenService:Create(BodyVelocity, TweenInfo, {Velocity = Velocity}):Play()
         BodyVelocity.Parent = PrimaryPart
 
         TweenService:Create(BodyGyro, TweenInfo, {CFrame = Rotation}):Play()
@@ -1561,6 +1574,19 @@ local function FullCharacterReset()
         humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
         humanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
     end
+
+local function disableDefaultAnimations(humanoid)
+    if not humanoid then return end
+       humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+    
+    -- Force the PlatformStanding state to prevent falling animation
+    humanoid:ChangeState(Enum.HumanoidStateType.PlatformStanding)
+end
 
     -- Reset humanoid
     local humanoid = character:FindFirstChild("Humanoid")
