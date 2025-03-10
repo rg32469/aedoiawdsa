@@ -8,6 +8,11 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
 
+local SpeedBoostMultiplier = 2.0  -- How much faster when boosting
+local IsSpeedBoosting = false     -- Track if currently speed boosting
+local BaseSpeed = 0               -- Store the base speed when flying
+
+
 local IdleHoverEnabled = true -- Toggle for idle hover
 local HoverAmplitude = 6.55 -- How high/low the hover goes
 local HoverFrequency = 3 -- How fast the hover cycles
@@ -1033,10 +1038,22 @@ MovementBox:AddSlider('FlySpeed', {
     Text = 'Fly Speed',
     Default = 45,
     Min = 1,
-    Max = 500,
+    Max = 1000,
     Rounding = 0,
     Compact = false,
 })
+
+MovementBox:AddSlider('SpeedBoostMultiplier', {
+    Text = 'Speed Boost Multiplier',
+    Default = 2.0,
+    Min = 1.1,
+    Max = 5.0,
+    Rounding = 1,
+    Compact = false,
+    Tooltip = 'How much faster when holding Shift'
+}):OnChanged(function(Value)
+    SpeedBoostMultiplier = Value
+end)
 
 MovementBox:AddToggle('IdleHover', {
     Text = 'Idle Hover',
@@ -1086,7 +1103,12 @@ RunService.Heartbeat:Connect(function()
         local Rotation = CamCFrame.Rotation
         local isMoving = false
 
-        -- Check for movement inputs
+        -- Update speed boost state
+        IsSpeedBoosting = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+        
+        -- Store current fly speed as base speed
+        BaseSpeed = Options.FlySpeed.Value
+
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             Velocity += CamCFrame.LookVector
             Rotation *= CFrame.Angles(math.rad(-100), 0, 0)
@@ -1112,30 +1134,32 @@ RunService.Heartbeat:Connect(function()
             Velocity += Vector3.new(0, 1, 0)
             isMoving = true
         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
             Velocity -= Vector3.new(0, 1, 0)
             isMoving = true
         end
 
-        -- Scale movement velocity with fly speed
-        Velocity = Velocity * Options.FlySpeed.Value
+        -- Apply speed boost if moving
+        if isMoving then
+            if IsSpeedBoosting then
+                Velocity = Velocity * (BaseSpeed * SpeedBoostMultiplier)
+            else
+                Velocity = Velocity * BaseSpeed
+            end
+        end
 
-        -- Add idle hover when not moving (independent of fly speed)
+        -- Add idle hover
         if not isMoving and IdleHoverEnabled then
             local currentTime = tick()
             local timePassed = currentTime - lastHoverTime
             
-            -- Create hover motion without fly speed influence
             local hoverOffset = math.sin(timePassed * HoverFrequency) * HoverAmplitude
-            local hoverVelocity = Vector3.new(0, hoverOffset, 0)
+            Velocity = Velocity + Vector3.new(0, hoverOffset, 0)
             
-            -- Add subtle sway without fly speed influence
             local swayOffset = math.sin(timePassed * HoverFrequency * 0.5) * (HoverAmplitude * 0.3)
-            local lateralOffset = math.sin(timePassed * HoverFrequency * 0.75) * (HoverAmplitude * 0.2)
-            
-            -- Add hover and sway velocities separately from main movement
-            Velocity = Velocity + hoverVelocity
             Velocity = Velocity + (CamCFrame.LookVector * swayOffset)
+            
+            local lateralOffset = math.sin(timePassed * HoverFrequency * 0.75) * (HoverAmplitude * 0.2)
             Velocity = Velocity + (CamCFrame.RightVector * lateralOffset)
         end
 
@@ -1146,18 +1170,14 @@ RunService.Heartbeat:Connect(function()
         TweenService:Create(BodyGyro, TweenInfo, {CFrame = Rotation}):Play()
         BodyGyro.Parent = PrimaryPart
 
-        -- Handle animation
         if flyAnimTrack and not flyAnimTrack.IsPlaying then
             flyAnimTrack:Play()
             flyAnimTrack.Looped = true
         end
     else
-        -- Stop animation when not flying
         if flyAnimTrack and flyAnimTrack.IsPlaying then
             flyAnimTrack:Stop()
         end
-        
-        -- Reset hover time when not flying
         lastHoverTime = tick()
     end
 end)
