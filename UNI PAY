@@ -35,7 +35,9 @@ local OscillationOffset = 0
 local FlyAnimations = {
     R15 = {
         Default = "rbxassetid://616011509",
-        Levitate = "rbxassetid://616006778",
+         None = "rbxassetid://",
+        Levitate = "rbxassetid://782846423",
+        Levitate2 = "rbxassetid://750780242",
         Skydive = "rbxassetid://910001910",
         Sigma = "rbxassetid://616157476"
     },
@@ -376,7 +378,7 @@ end)
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
 
 MovementBox:AddDropdown('FlyAnimStyle', {
-    Values = {"Default", "Levitate", "Skydive", "Sigma"}, -- Add your new animation name here
+    Values = {"Default", "Levitate", "Levitate2", "Skydive", "Sigma", "None"}, -- Add your new animation name here
     Default = 1,
     Multi = false,
     Text = 'Fly Animation Style',
