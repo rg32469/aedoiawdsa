@@ -8,6 +8,13 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
 
+local SpeedBoostMultiplier = 2.0  -- How much faster when boosting
+local IsSpeedBoosting = false     -- Track if currently speed boosting
+local BaseSpeed = 0               -- Store the base speed when flying
+
+local currentFlyAnim = "Default"
+local isR15 = true -- Will be determined when character loads
+
 local IdleHoverEnabled = true -- Toggle for idle hover
 local HoverAmplitude = 6.55 -- How high/low the hover goes
 local HoverFrequency = 3 -- How fast the hover cycles
@@ -26,10 +33,18 @@ local OscillationDistance = 1.1
 local OscillationOffset = 0
 
 local FlyAnimations = {
-    Default = "rbxassetid://616011509",  -- Note the comma here
-    Levitate = "rbxassetid://616006778", 
-    Skydive  = "rbxassetid://910001910",
-    Sigma    = "rbxassetid://616157476"
+    R15 = {
+        Default = "rbxassetid://616011509",
+         None = "rbxassetid://",
+        Levitate = "rbxassetid://782846423",
+        Levitate2 = "rbxassetid://750780242",
+        Skydive = "rbxassetid://910001910",
+        Sigma = "rbxassetid://616157476"
+    },
+    R6 = {
+        Default = "rbxassetid://169638954", -- Basic hover animation
+       -- Smooth gliding animation
+    }
 }
 
 local currentFlyAnim = "Default"
@@ -133,7 +148,54 @@ local function setupFlyAnimation()
     end
 end
 
+local function getAnimationNames(rigType)
+    local names = {}
+    for name, _ in pairs(FlyAnimations[rigType]) do
+        table.insert(names, name)
+    end
+    return names
+end
 
+local function setupFlyAnimation()
+    local character = game.Players.LocalPlayer.Character
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    
+    -- Determine if character is R15
+    isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+    
+    -- Stop and destroy existing animation if it exists
+    if flyAnimTrack then
+        flyAnimTrack:Stop()
+        flyAnimTrack:Destroy()
+    end
+    
+    local anim = Instance.new("Animation")
+    -- Select animation based on rig type
+    anim.AnimationId = isR15 and FlyAnimations.R15[currentFlyAnim] or FlyAnimations.R6[currentFlyAnim]
+    flyAnimTrack = humanoid:LoadAnimation(anim)
+    
+    -- Set animation priority to prevent interruption
+    if flyAnimTrack then
+        flyAnimTrack.Priority = Enum.AnimationPriority.Action4
+        flyAnimTrack.Looped = true
+    end
+end
+
+local function addNewFlyAnimation(name, animationId, rigType)
+    if rigType == "R15" or rigType == "R6" then
+        FlyAnimations[rigType][name] = animationId
+        
+        -- Update the corresponding dropdown
+        if rigType == "R15" then
+            Options.FlyAnimStyleR15.Values = getAnimationNames("R15")
+            Options.FlyAnimStyleR15:SetValues()
+        else
+            Options.FlyAnimStyleR6.Values = getAnimationNames("R6")
+            Options.FlyAnimStyleR6:SetValues()
+        end
+    end
+end
 
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
@@ -316,7 +378,7 @@ end)
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
 
 MovementBox:AddDropdown('FlyAnimStyle', {
-    Values = {"Default", "Levitate", "Skydive", "Sigma"}, -- Add your new animation name here
+    Values = {"Default", "Levitate", "Levitate2", "Skydive", "Sigma", "None"}, -- Add your new animation name here
     Default = 1,
     Multi = false,
     Text = 'Fly Animation Style',
@@ -326,6 +388,21 @@ MovementBox:AddDropdown('FlyAnimStyle', {
     setupFlyAnimation()
 end)
 
+MovementBox:AddDropdown('FlyAnimStyleR6', {
+    Values = getAnimationNames("R6"),
+    Default = 1,
+    Multi = false,
+    Text = 'R6 Fly Animation',
+    Tooltip = 'Select flying animation style for R6 rigs'
+}):OnChanged(function(Value)
+    if not isR15 then
+        currentFlyAnim = Value
+        setupFlyAnimation()
+        if Flying and flyAnimTrack then
+            flyAnimTrack:Play()
+        end
+    end
+end)
 
 
 MovementBox:AddToggle('TPWalkEnabled', {
@@ -1015,10 +1092,22 @@ MovementBox:AddSlider('FlySpeed', {
     Text = 'Fly Speed',
     Default = 45,
     Min = 1,
-    Max = 500,
+    Max = 1000,
     Rounding = 0,
     Compact = false,
 })
+
+MovementBox:AddSlider('SpeedBoostMultiplier', {
+    Text = 'Speed Boost Multiplier',
+    Default = 2.0,
+    Min = 1.1,
+    Max = 5.0,
+    Rounding = 1,
+    Compact = false,
+    Tooltip = 'How much faster when holding Shift'
+}):OnChanged(function(Value)
+    SpeedBoostMultiplier = Value
+end)
 
 MovementBox:AddToggle('IdleHover', {
     Text = 'Idle Hover',
@@ -1068,7 +1157,12 @@ RunService.Heartbeat:Connect(function()
         local Rotation = CamCFrame.Rotation
         local isMoving = false
 
-        -- Check for movement inputs
+        -- Update speed boost state
+        IsSpeedBoosting = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+        
+        -- Store current fly speed as base speed
+        BaseSpeed = Options.FlySpeed.Value
+
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             Velocity += CamCFrame.LookVector
             Rotation *= CFrame.Angles(math.rad(-100), 0, 0)
@@ -1094,30 +1188,32 @@ RunService.Heartbeat:Connect(function()
             Velocity += Vector3.new(0, 1, 0)
             isMoving = true
         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
             Velocity -= Vector3.new(0, 1, 0)
             isMoving = true
         end
 
-        -- Scale movement velocity with fly speed
-        Velocity = Velocity * Options.FlySpeed.Value
+        -- Apply speed boost if moving
+        if isMoving then
+            if IsSpeedBoosting then
+                Velocity = Velocity * (BaseSpeed * SpeedBoostMultiplier)
+            else
+                Velocity = Velocity * BaseSpeed
+            end
+        end
 
-        -- Add idle hover when not moving (independent of fly speed)
+        -- Add idle hover
         if not isMoving and IdleHoverEnabled then
             local currentTime = tick()
             local timePassed = currentTime - lastHoverTime
             
-            -- Create hover motion without fly speed influence
             local hoverOffset = math.sin(timePassed * HoverFrequency) * HoverAmplitude
-            local hoverVelocity = Vector3.new(0, hoverOffset, 0)
+            Velocity = Velocity + Vector3.new(0, hoverOffset, 0)
             
-            -- Add subtle sway without fly speed influence
             local swayOffset = math.sin(timePassed * HoverFrequency * 0.5) * (HoverAmplitude * 0.3)
-            local lateralOffset = math.sin(timePassed * HoverFrequency * 0.75) * (HoverAmplitude * 0.2)
-            
-            -- Add hover and sway velocities separately from main movement
-            Velocity = Velocity + hoverVelocity
             Velocity = Velocity + (CamCFrame.LookVector * swayOffset)
+            
+            local lateralOffset = math.sin(timePassed * HoverFrequency * 0.75) * (HoverAmplitude * 0.2)
             Velocity = Velocity + (CamCFrame.RightVector * lateralOffset)
         end
 
@@ -1128,18 +1224,14 @@ RunService.Heartbeat:Connect(function()
         TweenService:Create(BodyGyro, TweenInfo, {CFrame = Rotation}):Play()
         BodyGyro.Parent = PrimaryPart
 
-        -- Handle animation
         if flyAnimTrack and not flyAnimTrack.IsPlaying then
             flyAnimTrack:Play()
             flyAnimTrack.Looped = true
         end
     else
-        -- Stop animation when not flying
         if flyAnimTrack and flyAnimTrack.IsPlaying then
             flyAnimTrack:Stop()
         end
-        
-        -- Reset hover time when not flying
         lastHoverTime = tick()
     end
 end)
@@ -1149,6 +1241,22 @@ LocalPlayer.CharacterAdded:Connect(function()
     setupFlyAnimation()
 end)
 
+LocalPlayer.CharacterAdded:Connect(function(character)
+    task.wait(0.5) -- Wait for character to fully load
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        -- Update rig type
+        isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+        
+        -- Setup animation if flying
+        if Flying then
+            setupFlyAnimation()
+            if flyAnimTrack then
+                flyAnimTrack:Play()
+            end
+        end
+    end
+end)
 
 
 local function IsTargetVisible(targetPart)
