@@ -8,6 +8,8 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
 
+
+
 -- Variables for both features
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -19,6 +21,16 @@ local FuckPlayerEnabled = false
 local OscillationSpeed = 2
 local OscillationDistance = 1.1
 local OscillationOffset = 0
+
+local FlyAnimations = {
+    Default = "rbxassetid://616011509",  -- Note the comma here
+    Levitate = "rbxassetid://616006778", 
+    Skydive  = "rbxassetid://910001910",
+    Sigma    = "rbxassetid://616157476"
+}
+
+local currentFlyAnim = "Default"
+local flyAnimTrack = nil
 
 local animationTrack = nil
 local R15_ANIMATION_ID = "rbxassetid://5918726674"
@@ -51,25 +63,9 @@ local BodyVelocity
 local BodyGyro
 local Keybinds = {}
 
-local function ToggleFeature(name)
-    local toggle = Toggles[name]
-    if toggle then
-        toggle:SetValue(not toggle.Value)
-    end
-end
+local animationTrack = nil
 
-local function ToggleNoclip(enabled)
-    NoClipping = enabled
-    local character = LocalPlayer.Character
-    if character then
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = not enabled
-            end
-        end
-    end
-end
-
+-- Function to setup the animation
 local function setupAnimation()
     local character = game.Players.LocalPlayer.Character
     local humanoid = character:FindFirstChild("Humanoid")
@@ -89,6 +85,42 @@ local function setupAnimation()
         
         -- Load new animation
         animationTrack = humanoid:LoadAnimation(anim)
+    end
+end
+
+
+local function ToggleFeature(name)
+    local toggle = Toggles[name]
+    if toggle then
+        toggle:SetValue(not toggle.Value)
+    end
+end
+
+local function ToggleNoclip(enabled)
+    NoClipping = enabled
+    local character = LocalPlayer.Character
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not enabled
+            end
+        end
+    end
+end
+
+local function setupFlyAnimation()
+    local character = game.Players.LocalPlayer.Character
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        -- Stop and destroy existing animation if it exists
+        if flyAnimTrack then
+            flyAnimTrack:Stop()
+            flyAnimTrack:Destroy()
+        end
+        
+        local anim = Instance.new("Animation")
+        anim.AnimationId = FlyAnimations[currentFlyAnim]
+        flyAnimTrack = humanoid:LoadAnimation(anim)
     end
 end
 
@@ -271,6 +303,19 @@ Boxes.FuckSection:AddSlider('OscillationDistance', {
 end)
 
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
+
+MovementBox:AddDropdown('FlyAnimStyle', {
+    Values = {"Default", "Levitate", "Skydive", "Sigma"}, -- Add your new animation name here
+    Default = 1,
+    Multi = false,
+    Text = 'Fly Animation Style',
+    Tooltip = 'Select flying animation style'
+}):OnChanged(function(Value)
+    currentFlyAnim = Value
+    setupFlyAnimation()
+end)
+
+
 
 MovementBox:AddToggle('TPWalkEnabled', {
     Text = 'Walkspeed',
@@ -665,8 +710,6 @@ local Configuration = {
     FOVRadius = 100,
     MaxAimbotDistance = 1000,
     AimClosestToMouse = true, -- Default to true
-    HeadSize = 15,
-    HitboxExpanderEnabled = false,
     ESPEnabled = false,
     ESPSettings = {
         Box = true,
@@ -896,7 +939,6 @@ end)
 
 
 
-
 local function TPWalk(speed)
     if not TPWalking then return end
     local chr = LocalPlayer.Character
@@ -982,19 +1024,20 @@ RunService.Heartbeat:Connect(function()
 
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             Velocity += CamCFrame.LookVector
-            Rotation *= CFrame.Angles(math.rad(-40), 0, 0)
+            Rotation *= CFrame.Angles(math.rad(-100), 0, 0)
         end
+
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
             Velocity -= CamCFrame.LookVector
-            Rotation *= CFrame.Angles(math.rad(40), 0, 0)
+            Rotation *= CFrame.Angles(math.rad(80), 0, 0)
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
             Velocity += CamCFrame.RightVector
-            Rotation *= CFrame.Angles(0, 0, math.rad(-40))
+            Rotation *= CFrame.Angles(20, 0, math.rad(-40))
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
             Velocity -= CamCFrame.RightVector
-            Rotation *= CFrame.Angles(0, 0, math.rad(40))
+            Rotation *= CFrame.Angles(20, 0, math.rad(40))
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             Velocity += Vector3.new(0, 1, 0)
@@ -1009,8 +1052,26 @@ RunService.Heartbeat:Connect(function()
 
         TweenService:Create(BodyGyro, TweenInfo, {CFrame = Rotation}):Play()
         BodyGyro.Parent = PrimaryPart
+
+        -- Handle animation
+        if flyAnimTrack and not flyAnimTrack.IsPlaying then
+            flyAnimTrack:Play()
+            flyAnimTrack.Looped = true
+        end
+    else
+        -- Stop animation when not flying
+        if flyAnimTrack and flyAnimTrack.IsPlaying then
+            flyAnimTrack:Stop()
+        end
     end
 end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5) -- Wait for character to load
+    setupFlyAnimation()
+end)
+
+
 
 local function IsTargetVisible(targetPart)
     if not Configuration.WallCheck then return true end
