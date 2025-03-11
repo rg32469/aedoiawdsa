@@ -80,12 +80,14 @@ local FlipSystem = {
     currentRotation = 0,
     rotationVelocity = 0,
     lastUpdate = tick(),
-    isResetting = false,
+    flipPhase = 0, -- Tracks the current phase of the flip
     settings = {
         flipSpeed = 2.5,
         acceleration = 0.35,
-        overshoot = 0.15,     -- Controls slight overshoot
-        returnSpeed = 1.8     -- Speed of returning from overshoot
+        phaseThresholds = {
+            frontflip = {0.3, 0.7}, -- Phase transition points for frontflip
+            backflip = {0.4, 0.8}   -- Phase transition points for backflip
+        }
     }
 }
 
@@ -336,6 +338,7 @@ local currentRotation = 0
     end)
 end
 
+
 local function updateFlips(deltaTime)
     if not Flying then return end
     
@@ -347,68 +350,72 @@ local function updateFlips(deltaTime)
     
     -- Get flip input
     local flipDirection = 0
+    local isBackflip = false
+    
     if Options.FrontFlipKey:GetState() then
         flipDirection = 1
-        FlipSystem.isResetting = false
     elseif Options.BackFlipKey:GetState() then
         flipDirection = -1
-        FlipSystem.isResetting = false
-    elseif not FlipSystem.isResetting and math.abs(FlipSystem.rotationVelocity) > 0.01 then
-        FlipSystem.isResetting = true
+        isBackflip = true
+    else
+        -- Reset phase when not flipping
+        FlipSystem.flipPhase = 0
     end
     
-    -- Calculate flip force based on UI settings
-    local baseForce = FlipSystem.settings.flipSpeed * 2
-    local accelerationForce = FlipSystem.settings.acceleration * 12
-    
-    -- Update rotation velocity with proper force scaling
-    if FlipSystem.isResetting then
-        -- Smooth reset with slight overshoot correction
-        local resetForce = FlipSystem.settings.returnSpeed
+    if flipDirection ~= 0 then
+        -- Calculate flip progress (0 to 1)
+        local progress = math.abs(FlipSystem.currentRotation) / (math.pi * 2)
+        local thresholds = isBackflip and FlipSystem.settings.phaseThresholds.backflip 
+                                     or FlipSystem.settings.phaseThresholds.frontflip
+        
+        -- Determine flip phase and adjust forces
+        local phaseMultiplier = 1
+        if progress < thresholds[1] then
+            -- Initial push phase
+            phaseMultiplier = isBackflip and 1.2 or 1.1
+            FlipSystem.flipPhase = 1
+        elseif progress < thresholds[2] then
+            -- Mid-flip transition phase
+            phaseMultiplier = isBackflip and 0.9 or 1.0
+            FlipSystem.flipPhase = 2
+        else
+            -- Completion phase
+            phaseMultiplier = isBackflip and 1.1 or 0.95
+            FlipSystem.flipPhase = 3
+        end
+        
+        -- Calculate target velocity with phase-specific adjustments
+        local baseVelocity = flipDirection * FlipSystem.settings.flipSpeed * math.pi * 2
+        local targetVelocity = baseVelocity * phaseMultiplier
+        
+        -- Update velocity with phase-specific smoothing
+        local accelerationMultiplier = FlipSystem.flipPhase == 2 and 1.2 or 1.0
         FlipSystem.rotationVelocity = math.lerp(
             FlipSystem.rotationVelocity,
-            0,
-            deltaTime * resetForce * 4
+            targetVelocity,
+            deltaTime * FlipSystem.settings.acceleration * 10 * accelerationMultiplier
         )
-    else
-        -- Active flip with UI-controlled force
-        local targetVelocity = flipDirection * baseForce
-        local currentAbsVelocity = math.abs(FlipSystem.rotationVelocity)
-        local maxVelocity = baseForce * (1 + FlipSystem.settings.overshoot)
         
-        -- Apply acceleration with overshoot control
-        if currentAbsVelocity < maxVelocity then
-            FlipSystem.rotationVelocity = math.lerp(
-                FlipSystem.rotationVelocity,
-                targetVelocity,
-                deltaTime * accelerationForce
-            )
-        else
-            -- Smooth velocity correction for overshoot
-            FlipSystem.rotationVelocity = math.lerp(
-                FlipSystem.rotationVelocity,
-                targetVelocity,
-                deltaTime * FlipSystem.settings.returnSpeed * 3
-            )
-        end
-    end
-    
-    -- Apply rotation with smooth transition
-    if math.abs(FlipSystem.rotationVelocity) > 0.001 then
+        -- Apply rotation with phase-specific forces
         local rotationDelta = FlipSystem.rotationVelocity * deltaTime
         FlipSystem.currentRotation = FlipSystem.currentRotation + rotationDelta
         
-        -- Calculate smooth rotation with proper force
-        local flipRotation = CFrame.Angles(-rotationDelta, 0, 0)
+        -- Create phase-specific rotation
+        local angleMultiplier = isBackflip and 
+            (FlipSystem.flipPhase == 1 and 1.1 or 
+             FlipSystem.flipPhase == 2 and 0.95 or 1.0) or 1.0
+            
+        local flipRotation = CFrame.Angles(-rotationDelta * angleMultiplier, 0, 0)
+        
+        -- Apply rotation while maintaining flight stability
         BodyGyro.CFrame = currentGyroRotation * flipRotation
         
-        -- Adjust BodyGyro properties based on state
-        local gyroForce = Vector3.new(
-            baseForce * 1000,
-            baseForce * 1000,
-            baseForce * 1000
-        )
-        BodyGyro.MaxTorque = gyroForce
+        -- Adjust BodyGyro properties based on phase
+        local torqueMultiplier = FlipSystem.flipPhase == 2 and 1.2 or 1.0
+        BodyGyro.MaxTorque = Vector3.new(9e9 * torqueMultiplier, 9e9, 9e9)
+    else
+        -- Smooth return to normal flight when not flipping
+        FlipSystem.rotationVelocity = math.lerp(FlipSystem.rotationVelocity, 0, deltaTime * 5)
     end
 end
 
