@@ -98,6 +98,13 @@ local animationTrack = nil
 local R15_ANIMATION_ID = "rbxassetid://5918726674"
 local R6_ANIMATION_ID = "rbxassetid://148840371"
 
+local DirectionalAnims = {
+    Idle = nil,
+    Left = nil,
+    Right = nil,
+    Back = nil
+}
+
 
 local SavedPosition = nil
 local NoClipping = false
@@ -471,6 +478,84 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+local function playDirectionalAnimation(direction)
+    if not Flying or not Toggles.EnableDirectionalAnims.Value then return end
+    
+    local character = game.Players.LocalPlayer.Character
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    
+    -- Get the current animation style for the direction
+    local animStyle = Options[direction .. "AnimStyle"].Value
+    local animId = ""
+    
+    -- Get the animation ID based on style
+    if animStyle == "Custom" then
+        animId = DirectionalAnimations[direction].R15.Custom
+    elseif animStyle == "Default" then
+        animId = DirectionalAnimations[direction].R15.Default
+    end
+    
+    -- If no animation ID or style is "None", stop current directional animation
+    if animId == "" or animStyle == "None" then
+        if currentDirectionalTrack then
+            currentDirectionalTrack:Stop()
+            currentDirectionalTrack = nil
+        end
+        -- Resume default fly animation
+        if flyAnimTrack then
+            flyAnimTrack:Play()
+        end
+        return
+    end
+    
+    -- If already playing the same animation, don't restart it
+    if currentDirection == direction and currentDirectionalTrack and currentDirectionalTrack.IsPlaying then
+        return
+    end
+    
+    -- Stop current animation
+    if currentDirectionalTrack then
+        currentDirectionalTrack:Stop()
+        currentDirectionalTrack = nil
+    end
+    
+    -- Create and play new animation
+    local anim = Instance.new("Animation")
+    anim.AnimationId = animId
+    currentDirectionalTrack = humanoid:LoadAnimation(anim)
+    currentDirectionalTrack.Priority = Enum.AnimationPriority.Action4
+    currentDirectionalTrack.Looped = true
+    
+    -- Apply blend time if set
+    if Options.AnimationBlendTime then
+        currentDirectionalTrack:AdjustSpeed(1)
+        currentDirectionalTrack:Play(Options.AnimationBlendTime.Value)
+    else
+        currentDirectionalTrack:Play()
+    end
+    
+    currentDirection = direction
+end
+
+local function playDirectionalAnimation(direction, animId)
+    if not Flying or not Toggles.EnableDirectionalAnims.Value then return end
+    
+    local humanoid = game.Players.LocalPlayer.Character.Humanoid
+    if not humanoid then return end
+    
+    -- Stop current animation if it exists
+    if DirectionalAnims[direction] then
+        DirectionalAnims[direction]:Stop()
+    end
+    
+    -- Create and play new animation
+    local anim = Instance.new("Animation")
+    anim.AnimationId = animId
+    DirectionalAnims[direction] = humanoid:LoadAnimation(anim)
+    DirectionalAnims[direction]:Play()
+end
+
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
 -- Create a custom cursor with exact Roblox cursor positioning
@@ -520,6 +605,17 @@ local Window = Library:CreateWindow({
     Title = 'ACE Universal',
     Center = true,
     AutoShow = true,
+    TabPadding = 4, -- Reduces padding between tabs
+    Size = UDim2.new(0, 700, 0, 600), -- Adjust size as needed
+    TabList = {
+        Position = [[
+
+            ^ 
+        <- | ->  -- This creates a more compact tab layout with left/right arrows
+            v
+
+        ]] -- You can also use "Top" or "Bottom" for traditional layout
+    }
 })
 
 local Tabs = {
@@ -527,6 +623,7 @@ local Tabs = {
     Players = Window:AddTab('Players'),
     FlyingFlips = Window:AddTab('Flying Flips'),
     ESP = Window:AddTab('ESP Settings'),
+    ExtraFlight = Window:AddTab('Extra Flight Animations'), -- New tab
     ['UI Settings'] = Window:AddTab('UI Settings')
 }
 
@@ -757,6 +854,173 @@ local PlayerBox = Tabs.Players:AddLeftGroupbox('Player Options')
 local ESPBoxes = {
     ESPLeft = Tabs.ESP:AddLeftGroupbox('ESP Features'),
 }
+
+local ExtraFlightBoxes = {
+    ExtraFlightLeft = Tabs.ExtraFlight:AddLeftGroupbox('Direction Animations'),
+    ExtraFlightRight = Tabs.ExtraFlight:AddRightGroupbox('Animation Settings')
+}
+
+-- Add your animation variables
+local DirectionalAnimations = {
+    Idle = {
+        R15 = {
+            Default = "rbxassetid://rbxassetid://10714347256",  -- Default idle hover animation
+            None = "",
+            Custom = ""
+        }
+    },
+    Left = {
+        R15 = {
+            Default = "rbxassetid://507767968",  -- Default left lean animation
+            None = "",
+            Custom = ""
+        }
+    },
+    Right = {
+        R15 = {
+            Default = "rbxassetid://507767968",  -- Default right lean animation
+            None = "",
+            Custom = ""
+        }
+    },
+    Backwards = {
+        R15 = {
+            Default = "rbxassetid://507766951",  -- Default backwards animation
+            None = "",
+            Custom = ""
+        }
+    }
+}
+
+ExtraFlightBoxes.ExtraFlightLeft:AddDropdown('IdleAnimStyle', {
+    Values = {"Default", "None", "Custom"},
+    Default = 1,
+    Multi = false,
+    Text = 'Idle Animation Style',
+    Tooltip = 'Select idle animation style'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddInput('IdleAnimID', {
+    Default = '',
+    Numeric = false,
+    Finished = false,
+    Text = 'Custom Idle Animation ID',
+    Tooltip = 'Input custom rbxassetid for idle animation',
+    Placeholder = 'rbxassetid://...'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddDropdown('LeftAnimStyle', {
+    Values = {"Default", "None", "Custom"},
+    Default = 1,
+    Multi = false,
+    Text = 'Left Animation Style',
+    Tooltip = 'Select left animation style'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddInput('LeftAnimID', {
+    Default = '',
+    Numeric = false,
+    Finished = false,
+    Text = 'Custom Left Animation ID',
+    Tooltip = 'Input custom rbxassetid for left animation',
+    Placeholder = 'rbxassetid://...'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddDropdown('RightAnimStyle', {
+    Values = {"Default", "None", "Custom"},
+    Default = 1,
+    Multi = false,
+    Text = 'Right Animation Style',
+    Tooltip = 'Select right animation style'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddInput('RightAnimID', {
+    Default = '',
+    Numeric = false,
+    Finished = false,
+    Text = 'Custom Right Animation ID',
+    Tooltip = 'Input custom rbxassetid for right animation',
+    Placeholder = 'rbxassetid://...'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddDropdown('BackAnimStyle', {
+    Values = {"Default", "None", "Custom"},
+    Default = 1,
+    Multi = false,
+    Text = 'Backwards Animation Style',
+    Tooltip = 'Select backwards animation style'
+})
+
+ExtraFlightBoxes.ExtraFlightLeft:AddInput('BackAnimID', {
+    Default = '',
+    Numeric = false,
+    Finished = false,
+    Text = 'Custom Backwards Animation ID',
+    Tooltip = 'Input custom rbxassetid for backwards animation',
+    Placeholder = 'rbxassetid://...'
+})
+
+-- Add settings to the right box
+ExtraFlightBoxes.ExtraFlightRight:AddToggle('EnableDirectionalAnims', {
+    Text = 'Enable Directional Animations',
+    Default = false,
+    Tooltip = 'Toggle directional animations while flying'
+})
+
+ExtraFlightBoxes.ExtraFlightRight:AddSlider('AnimationBlendTime', {
+    Text = 'Blend Time',
+    Default = 0.3,
+    Min = 0.1,
+    Max = 1,
+    Rounding = 2,
+    Compact = false,
+    Tooltip = 'Time to blend between animations'
+})
+
+-- Add callbacks for the dropdowns
+Options.IdleAnimStyle:OnChanged(function(Value)
+    if Value == "Custom" then
+        Options.IdleAnimID:SetValue(DirectionalAnimations.Idle.R15.Custom)
+    end
+end)
+
+Options.LeftAnimStyle:OnChanged(function(Value)
+    if Value == "Custom" then
+        Options.LeftAnimID:SetValue(DirectionalAnimations.Left.R15.Custom)
+    end
+end)
+
+Options.RightAnimStyle:OnChanged(function(Value)
+    if Value == "Custom" then
+        Options.RightAnimID:SetValue(DirectionalAnimations.Right.R15.Custom)
+    end
+end)
+
+Options.BackAnimStyle:OnChanged(function(Value)
+    if Value == "Custom" then
+        Options.BackAnimID:SetValue(DirectionalAnimations.Backwards.R15.Custom)
+    end
+end)
+
+-- Add callbacks for the animation IDs
+Options.IdleAnimID:OnChanged(function(Value)
+    DirectionalAnimations.Idle.R15.Custom = Value
+end)
+
+Options.LeftAnimID:OnChanged(function(Value)
+    DirectionalAnimations.Left.R15.Custom = Value
+end)
+
+Options.RightAnimID:OnChanged(function(Value)
+    DirectionalAnimations.Right.R15.Custom = Value
+end)
+
+Options.BackAnimID:OnChanged(function(Value)
+    DirectionalAnimations.Backwards.R15.Custom = Value
+end)
+
+local currentDirectionalTrack = nil
+local currentDirection = "None"
 
 -- Add new ESP container
 local espContainer = Instance.new("Folder")
@@ -998,6 +1262,42 @@ ESPBoxes.ESPLeft:AddToggle('ESP_Enabled', {
         end
     end
 })
+
+RunService.RenderStepped:Connect(function()
+    if Flying and Toggles.EnableDirectionalAnims.Value then
+        local animId = ""
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            animId = Options.LeftAnimID.Value
+            playDirectionalAnimation("Left", animId)
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            animId = Options.RightAnimID.Value
+            playDirectionalAnimation("Right", animId)
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            animId = Options.BackAnimID.Value
+            playDirectionalAnimation("Back", animId)
+        elseif not (UserInputService:IsKeyDown(Enum.KeyCode.W) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.A) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.S) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.D)) then
+            animId = Options.IdleAnimID.Value
+            playDirectionalAnimation("Idle", animId)
+        end
+    else
+        -- Stop all directional animations if flying is disabled
+        for _, anim in pairs(DirectionalAnims) do
+            if anim then anim:Stop() end
+        end
+    end
+end)
+
+-- Add cleanup for character respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    for direction, anim in pairs(DirectionalAnims) do
+        if anim then anim:Stop() end
+        DirectionalAnims[direction] = nil
+    end
+end)
 
 ESPBoxes.ESPLeft:AddToggle('Fill_Enabled', {
     Text = 'Enable Fill',
@@ -2170,6 +2470,49 @@ RunService.RenderStepped:Connect(function(deltaTime)
         updateFlips(deltaTime)
     end
 end)
+
+RunService.RenderStepped:Connect(function()
+    if Flying and Toggles.EnableDirectionalAnims.Value then
+        -- Check movement keys and play corresponding animations
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            playDirectionalAnimation('Left')
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            playDirectionalAnimation('Right')
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            playDirectionalAnimation('Back')
+        elseif not (UserInputService:IsKeyDown(Enum.KeyCode.W) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.A) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.S) or 
+                   UserInputService:IsKeyDown(Enum.KeyCode.D)) then
+            playDirectionalAnimation('Idle')
+        end
+    else
+        -- Stop directional animation if flying is disabled
+        if currentDirectionalTrack then
+            currentDirectionalTrack:Stop()
+            currentDirectionalTrack = nil
+        end
+        currentDirection = "None"
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if currentDirectionalTrack then
+        currentDirectionalTrack:Stop()
+        currentDirectionalTrack = nil
+    end
+    currentDirection = "None"
+end)
+
+-- Add cleanup when flying is disabled
+-- Find where Flying is toggled to false and add:
+if not Flying then
+    if currentDirectionalTrack then
+        currentDirectionalTrack:Stop()
+        currentDirectionalTrack = nil
+    end
+    currentDirection = "None"
+end
 
 -- Initialize Theme and Save Manager
 ThemeManager:SetLibrary(Library)
