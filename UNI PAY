@@ -20,6 +20,16 @@ local HoverAmplitude = 6.55 -- How high/low the hover goes
 local HoverFrequency = 3 -- How fast the hover cycles
 local lastHoverTime = tick() -- Track time for smooth hover
 
+local isFlipping = false
+local flipDuration = 1.2 -- Slightly longer duration for smoother flips
+local flipForce = 50
+local lastFlipTime = 0
+local flipCooldown = 0.1
+local overshootAmount = 0.15 -- How much to overshoot (0.15 = 15%)
+local recoverySpeed = 1.2 -- How fast to recover from overshoot
+local smoothingFactor = 0.8 -- How smooth the transitions should be
+
+
 -- Variables for both features
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -31,6 +41,33 @@ local FuckPlayerEnabled = false
 local OscillationSpeed = 2
 local OscillationDistance = 1.1
 local OscillationOffset = 0
+
+local EasingFunctions = {
+    -- Smooth start (accelerate)
+    easeInQuad = function(t)
+        return t * t
+    end,
+    
+    -- Smooth stop (decelerate)
+    easeOutQuad = function(t)
+        return t * (2 - t)
+    end,
+    
+    -- Smooth start and stop with overshoot
+    easeOutBack = function(t)
+        local c1 = 1.70158
+        local c3 = c1 + 1
+        return 1 + c3 * math.pow(t - 1, 3) + c1 * math.pow(t - 1, 2)
+    end,
+    
+    -- Smooth transition with elastic overshoot
+    easeOutElastic = function(t)
+        local c4 = (2 * math.pi) / 3
+        if t == 0 then return 0 end
+        if t == 1 then return 1 end
+        return math.pow(2, -10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
+    end
+}
 
 local FlyAnimations = {
     R15 = {
@@ -44,6 +81,19 @@ local FlyAnimations = {
     R6 = {
         Default = "rbxassetid://169638954", -- Basic hover animation
        -- Smooth gliding animation
+    }
+}
+
+local FlipSystem = {
+    currentRotation = 0,
+    rotationVelocity = 0,
+    lastUpdate = tick(),
+    isResetting = false,
+    settings = {
+        flipSpeed = 2.5,
+        acceleration = 0.35,
+        overshoot = 0.15,     -- Controls slight overshoot
+        returnSpeed = 1.8     -- Speed of returning from overshoot
     }
 }
 
@@ -197,6 +247,231 @@ local function addNewFlyAnimation(name, animationId, rigType)
     end
 end
 
+local function performFlip(direction)
+    if not Flying or isFlipping then return end
+    
+    local currentTime = tick()
+    if currentTime - lastFlipTime < flipCooldown then return end
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+if not PrimaryPart then return end
+    
+isFlipping = true
+lastFlipTime = currentTime
+
+-- Store initial state
+local startCFrame = PrimaryPart.CFrame
+local startTime = tick()
+local startVelocity = BodyVelocity and BodyVelocity.Velocity or Vector3.new(0, 0, 0)
+local initialLookVector = Camera.CFrame.LookVector
+
+-- Create a smoother animation curve
+local function getFlipProgress(elapsed)
+    local baseProgress = math.min(elapsed / flipDuration, 1)
+    
+    -- Phase 1: Initial smooth acceleration (0-40%)
+    if baseProgress < 0.4 then
+        return EasingFunctions.easeInQuad(baseProgress / 0.4) * 0.4
+    -- Phase 2: Main flip rotation (40-85%)
+    elseif baseProgress < 0.85 then
+        return 0.4 + (baseProgress - 0.4) * (0.45 / 0.45)
+    -- Phase 3: Overshoot and recovery (85-100%)
+    else
+        local overshootProgress = (baseProgress - 0.85) / 0.15
+        return 0.85 + EasingFunctions.easeOutElastic(overshootProgress) * 0.15
+    end
+end
+
+local lastRotation = 0
+local currentRotation = 0
+    local targetRotation = 0
+    
+    local flipConnection
+    flipConnection = RunService.RenderStepped:Connect(function()
+        local elapsed = tick() - startTime
+        local progress = getFlipProgress(elapsed / flipDuration)
+        
+        if elapsed >= flipDuration * 1.2 then -- Allow 20% extra time for recovery
+            isFlipping = false
+            flipConnection:Disconnect()
+            return
+        end
+        
+        -- Calculate smooth rotation with overshoot
+        local baseRotation = direction * (math.pi * 2 * progress)
+        targetRotation = baseRotation
+        
+        -- Add overshoot effect near the end
+        if progress > 0.85 then
+            local overshootProgress = (progress - 0.85) / 0.15
+            local overshootEffect = math.sin(overshootProgress * math.pi) * overshootAmount * direction
+            targetRotation = targetRotation + overshootEffect
+        end
+        
+        -- Smooth out the rotation
+        currentRotation = currentRotation + (targetRotation - currentRotation) * smoothingFactor
+        
+        -- Calculate rotation difference for velocity adjustment
+        local rotationDelta = currentRotation - lastRotation
+        lastRotation = currentRotation
+        
+        -- Apply the rotation while maintaining position
+        local newCFrame = startCFrame * CFrame.Angles(-currentRotation, 0, 0)
+        PrimaryPart.CFrame = newCFrame
+        
+        -- Calculate and apply dynamic force based on flip phase
+        local forceMultiplier = 1
+        if progress < 0.2 then
+            forceMultiplier = EasingFunctions.easeInQuad(progress / 0.2)
+        elseif progress > 0.8 then
+            forceMultiplier = EasingFunctions.easeOutQuad((1 - progress) / 0.2)
+        end
+        
+        -- Apply force in the direction of flight with smooth transitions
+        local flyDirection = Camera.CFrame.LookVector
+        local verticalComponent = Vector3.new(0, rotationDelta * flipForce, 0)
+        local horizontalComponent = flyDirection * flipForce * forceMultiplier
+        
+        if BodyVelocity then
+            local targetVelocity = horizontalComponent + verticalComponent
+            BodyVelocity.Velocity = Vector3.new(
+                targetVelocity.X,
+                math.clamp(targetVelocity.Y, -flipForce, flipForce),
+                targetVelocity.Z
+            )
+        end
+    end)
+end
+
+local function updateFlips(deltaTime)
+    if not Flying then return end
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart or not BodyGyro then return end
+
+    local currentGyroRotation = BodyGyro.CFrame
+    
+    -- Get flip input
+    local flipDirection = 0
+    if Options.FrontFlipKey:GetState() then
+        flipDirection = 1
+        FlipSystem.isResetting = false
+    elseif Options.BackFlipKey:GetState() then
+        flipDirection = -1
+        FlipSystem.isResetting = false
+    elseif not FlipSystem.isResetting and math.abs(FlipSystem.rotationVelocity) > 0.01 then
+        FlipSystem.isResetting = true
+    end
+    
+    -- Calculate flip force based on UI settings
+    local baseForce = FlipSystem.settings.flipSpeed * 2
+    local accelerationForce = FlipSystem.settings.acceleration * 12
+    
+    -- Update rotation velocity with proper force scaling
+    if FlipSystem.isResetting then
+        -- Smooth reset with slight overshoot correction
+        local resetForce = FlipSystem.settings.returnSpeed
+        FlipSystem.rotationVelocity = math.lerp(
+            FlipSystem.rotationVelocity,
+            0,
+            deltaTime * resetForce * 4
+        )
+    else
+        -- Active flip with UI-controlled force
+        local targetVelocity = flipDirection * baseForce
+        local currentAbsVelocity = math.abs(FlipSystem.rotationVelocity)
+        local maxVelocity = baseForce * (1 + FlipSystem.settings.overshoot)
+        
+        -- Apply acceleration with overshoot control
+        if currentAbsVelocity < maxVelocity then
+            FlipSystem.rotationVelocity = math.lerp(
+                FlipSystem.rotationVelocity,
+                targetVelocity,
+                deltaTime * accelerationForce
+            )
+        else
+            -- Smooth velocity correction for overshoot
+            FlipSystem.rotationVelocity = math.lerp(
+                FlipSystem.rotationVelocity,
+                targetVelocity,
+                deltaTime * FlipSystem.settings.returnSpeed * 3
+            )
+        end
+    end
+    
+    -- Apply rotation with smooth transition
+    if math.abs(FlipSystem.rotationVelocity) > 0.001 then
+        local rotationDelta = FlipSystem.rotationVelocity * deltaTime
+        FlipSystem.currentRotation = FlipSystem.currentRotation + rotationDelta
+        
+        -- Calculate smooth rotation with proper force
+        local flipRotation = CFrame.Angles(-rotationDelta, 0, 0)
+        BodyGyro.CFrame = currentGyroRotation * flipRotation
+        
+        -- Adjust BodyGyro properties based on state
+        local gyroForce = Vector3.new(
+            baseForce * 1000,
+            baseForce * 1000,
+            baseForce * 1000
+        )
+        BodyGyro.MaxTorque = gyroForce
+    end
+end
+
+-- Connect to RenderStepped for smooth animation
+RunService.RenderStepped:Connect(function()
+    if not Flying then return end
+    
+    local currentTime = tick()
+    local deltaTime = currentTime - FlipSystem.lastUpdate
+    FlipSystem.lastUpdate = currentTime
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart then return end
+    
+    -- Check flip inputs
+    local flipDirection = 0
+    if Options.FrontFlipKey:GetState() then
+        flipDirection = 1
+        FlipSystem.isFlipping = true
+    elseif Options.BackFlipKey:GetState() then
+        flipDirection = -1
+        FlipSystem.isFlipping = true
+    else
+        FlipSystem.isFlipping = false
+    end
+    
+    -- Update flip physics
+    if FlipSystem.isFlipping or math.abs(FlipSystem.rotationVelocity) > 0.01 then
+        local finalRotation = updateFlip(deltaTime, flipDirection)
+        
+        -- Apply rotation to character
+        local currentCFrame = PrimaryPart.CFrame
+        local newCFrame = CFrame.new(currentCFrame.Position) *
+                         CFrame.Angles(-finalRotation, 0, 0) *
+                         CFrame.new(0, 0, 0)
+        
+        -- Smooth transition
+        PrimaryPart.CFrame = currentCFrame:Lerp(newCFrame, FlipSystem.settings.smoothness)
+        
+        -- Apply force in the direction of flight with air control
+        if BodyVelocity then
+            local flyDirection = Camera.CFrame.LookVector
+            local currentVel = BodyVelocity.Velocity
+            local targetVel = flyDirection * (Options.FlySpeed.Value * FlipSystem.settings.airControl)
+            
+            BodyVelocity.Velocity = Vector3.new(
+                math.lerp(currentVel.X, targetVel.X, FlipSystem.settings.smoothness),
+                currentVel.Y,
+                math.lerp(currentVel.Z, targetVel.Z, FlipSystem.settings.smoothness)
+            )
+        end
+    end
+end)
+
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
 -- Create a custom cursor with exact Roblox cursor positioning
@@ -251,16 +526,19 @@ local Window = Library:CreateWindow({
 local Tabs = {
     Main = Window:AddTab('Main'),
     Players = Window:AddTab('Players'),
+    FlyingFlips = Window:AddTab('Flying Flips'),
     ESP = Window:AddTab('ESP Settings'),
-    ['UI Settings'] = Window:AddTab('UI Settings'),
+    ['UI Settings'] = Window:AddTab('UI Settings')
 }
+
+local FlipsBox = Tabs.FlyingFlips:AddLeftGroupbox('Flip Controls')
+local FlipSettingsBox = Tabs.FlyingFlips:AddRightGroupbox('Flip Settings')
 
 -- Update your Boxes declaration to include the new hitbox section
 local Boxes = {
     MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
     MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
     HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander'),
-    -- Add this new box
     FuckSection = Tabs.Players:AddRightGroupbox('Fuck Settings')  -- New group box in Players tab
 }
 
@@ -693,6 +971,20 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+RunService.RenderStepped:Connect(function()
+    if Flying then
+        -- Check for front flip
+        if Options.FrontFlipKey:GetState() then
+            performFlip(1)
+        end
+        
+        -- Check for back flip
+        if Options.BackFlipKey:GetState() then
+            performFlip(-1)
+        end
+    end
+end)
+
 -- Add ESP controls to your existing ESP tab
 ESPBoxes.ESPLeft:AddToggle('ESP_Enabled', {
     Text = 'Enable ESP',
@@ -776,6 +1068,51 @@ ESPBoxes.ESPLeft:AddLabel('Outline Color'):AddColorPicker('Outline_Color', {
         end
     end
 })
+
+FlipsBox:AddToggle('FrontFlipEnabled', {
+    Text = 'Front Flip',
+    Default = false,
+    Tooltip = 'Hold to perform a front flip while flying'
+}):AddKeyPicker('FrontFlipKey', {
+    Default = 'F',
+    Mode = 'Hold',
+    Text = 'Front Flip',
+    NoUI = false,
+})
+
+FlipsBox:AddToggle('BackFlipEnabled', {
+    Text = 'Back Flip',
+    Default = false,
+    Tooltip = 'Hold to perform a back flip while flying'
+}):AddKeyPicker('BackFlipKey', {
+    Default = 'B',
+    Mode = 'Hold',
+    Text = 'Back Flip',
+    NoUI = false,
+})
+
+FlipsBox:AddSlider('FlipSpeed', {
+    Text = 'Flip Speed',
+    Default = 2.5,
+    Min = 1,
+    Max = 4,
+    Rounding = 2,
+    Tooltip = 'Speed of the flip rotation'
+}):OnChanged(function(Value)
+    FlipSystem.settings.flipSpeed = Value
+end)
+
+FlipsBox:AddSlider('FlipAcceleration', {
+    Text = 'Acceleration',
+    Default = 35,
+    Min = 15,
+    Max = 70,
+    Rounding = 0,
+    Tooltip = 'How quickly the flip reaches max speed'
+}):OnChanged(function(Value)
+    FlipSystem.settings.acceleration = Value / 100
+end)
+
 -- Combat Features Implementation
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -1826,6 +2163,12 @@ RunService.RenderStepped:Connect(function()
             -- Maintain noclip state
             ToggleNoclip(true)
         end
+    end
+end)
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    if Flying then
+        updateFlips(deltaTime)
     end
 end)
 
