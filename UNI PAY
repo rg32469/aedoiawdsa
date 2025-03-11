@@ -20,14 +20,6 @@ local HoverAmplitude = 6.55 -- How high/low the hover goes
 local HoverFrequency = 3 -- How fast the hover cycles
 local lastHoverTime = tick() -- Track time for smooth hover
 
-local isFlipping = false
-local flipDuration = 1.2 -- Slightly longer duration for smoother flips
-local flipForce = 50
-local lastFlipTime = 0
-local flipCooldown = 0.1
-local overshootAmount = 0.15 -- How much to overshoot (0.15 = 15%)
-local recoverySpeed = 1.2 -- How fast to recover from overshoot
-local smoothingFactor = 0.8 -- How smooth the transitions should be
 
 
 -- Variables for both features
