@@ -59,14 +59,14 @@ local EasingFunctions = {
         if t == 1 then return 1 end
         return math.pow(2, -10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
     end
-}
+} 
 
 local FlyAnimations = {
     R15 = {
-        Default = "rbxassetid://616011509",
+        Default = "rbxassetid://750780242",
          None = "rbxassetid://",
         Levitate = "rbxassetid://782846423",
-        Levitate2 = "rbxassetid://750780242",
+        Levitate2 = "rbxassetid://616011509",
         Skydive = "rbxassetid://910001910",
         Sigma = "rbxassetid://616157476"
     },
@@ -1351,6 +1351,17 @@ Boxes.MainLeft:AddToggle('UseSensitivity', {
 }):OnChanged(function(Value)
     Configuration.UseSensitivity = Value
 end)
+
+-- Aim Closest to Mouse Toggle (default to true)
+Boxes.MainLeft:AddToggle('AimClosestToMouse', {
+    Text = 'Aim Closest Player to Mouse',
+    Default = true,
+    Tooltip = 'Aims at the closest player to the mouse pointer'
+}):OnChanged(function(Value)
+    Configuration.AimClosestToMouse = Value
+end)
+
+
 
 
 local function TPWalk(speed)
