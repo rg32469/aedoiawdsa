@@ -1068,8 +1068,8 @@ ESPBoxes.ESPLeft:AddLabel('Outline Color'):AddColorPicker('Outline_Color', {
     end
 })
 
-FlipsBox:AddToggle('FrontFlipEnabled (HOLD)', {
-    Text = 'Front Flip',
+FlipsBox:AddToggle('FrontFlipEnabled', {
+    Text = 'Front Flip (HOLD)',
     Default = false,
     Tooltip = 'Hold to perform a front flip while flying'
 }):AddKeyPicker('FrontFlipKey', {
@@ -1079,8 +1079,8 @@ FlipsBox:AddToggle('FrontFlipEnabled (HOLD)', {
     NoUI = false,
 })
 
-FlipsBox:AddToggle('BackFlipEnabled (HOLD)', {
-    Text = 'Back Flip',
+FlipsBox:AddToggle('BackFlipEnabled', {
+    Text = 'Back Flip (HOLD)',
     Default = false,
     Tooltip = 'Hold to perform a back flip while flying'
 }):AddKeyPicker('BackFlipKey', {
