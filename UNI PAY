@@ -654,11 +654,6 @@ end)
 
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
 
-local IdleAnimBox = Tabs.Main:AddRightGroupbox('Idle Animation')
-
-
-
-
 MovementBox:AddDropdown('FlyAnimStyle', {
     Values = {"Default", "Levitate", "Levitate2", "Skydive", "Sigma", "None"}, -- Add your new animation name here
     Default = 1,
@@ -750,8 +745,6 @@ MovementBox:AddSlider('JumpPower', {
     Rounding = 0,
     Compact = false,
 })
-
-
 
 
 
@@ -1118,8 +1111,6 @@ FlipsBox:AddSlider('FlipAcceleration', {
 }):OnChanged(function(Value)
     FlipSystem.settings.acceleration = Value / 100
 end)
-
-
 
 -- Combat Features Implementation
 local Players = game:GetService("Players")
