@@ -59,14 +59,14 @@ local EasingFunctions = {
         if t == 1 then return 1 end
         return math.pow(2, -10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
     end
-}
+} 
 
 local FlyAnimations = {
     R15 = {
-        Default = "rbxassetid://616011509",
+        Default = "rbxassetid://750780242",
          None = "rbxassetid://",
         Levitate = "rbxassetid://782846423",
-        Levitate2 = "rbxassetid://750780242",
+        Levitate2 = "rbxassetid://616011509",
         Skydive = "rbxassetid://910001910",
         Sigma = "rbxassetid://616157476"
     },
@@ -1069,7 +1069,7 @@ ESPBoxes.ESPLeft:AddLabel('Outline Color'):AddColorPicker('Outline_Color', {
 })
 
 FlipsBox:AddToggle('FrontFlipEnabled', {
-    Text = 'Front Flip',
+    Text = 'Front Flip (HOLD)',
     Default = false,
     Tooltip = 'Hold to perform a front flip while flying'
 }):AddKeyPicker('FrontFlipKey', {
@@ -1080,7 +1080,7 @@ FlipsBox:AddToggle('FrontFlipEnabled', {
 })
 
 FlipsBox:AddToggle('BackFlipEnabled', {
-    Text = 'Back Flip',
+    Text = 'Back Flip (HOLD)',
     Default = false,
     Tooltip = 'Hold to perform a back flip while flying'
 }):AddKeyPicker('BackFlipKey', {
@@ -1092,7 +1092,7 @@ FlipsBox:AddToggle('BackFlipEnabled', {
 
 FlipsBox:AddSlider('FlipSpeed', {
     Text = 'Flip Speed',
-    Default = 2.5,
+    Default = 3.12,
     Min = 1,
     Max = 4,
     Rounding = 2,
@@ -1103,7 +1103,7 @@ end)
 
 FlipsBox:AddSlider('FlipAcceleration', {
     Text = 'Acceleration',
-    Default = 35,
+    Default = 55,
     Min = 15,
     Max = 70,
     Rounding = 0,
