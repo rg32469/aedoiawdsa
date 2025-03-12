@@ -204,7 +204,7 @@ end
 
 local function setupFlyAnimation()
     local character = game.Players.LocalPlayer.Character
-    local humanoid = character:FindFirstChild("Humanoid")
+    local humanoid = character and character:FindFirstChild("Humanoid")
     if not humanoid then return end
     
     -- Determine if character is R15
@@ -215,32 +215,90 @@ local function setupFlyAnimation()
         flyAnimTrack:Stop()
         flyAnimTrack:Destroy()
     end
-    
-    local anim = Instance.new("Animation")
-    -- Get the current movement direction and use appropriate animation
-    local currentDirection = "idle" -- Default to idle
-    
-    -- Check movement keys to determine direction
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        currentDirection = "forward"
-    elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        currentDirection = "back"
-    elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
-        currentDirection = "left"
-    elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
-        currentDirection = "right"
+
+    -- Stop current animations
+    for direction, data in pairs(CurrentTracks) do
+        if data.track and data.track.IsPlaying then
+            data.track:Stop()
+        end
+        if data.connection then
+            data.connection:Disconnect()
+        end
+        CurrentTracks[direction] = nil
     end
-    
-    -- Get animation ID based on direction
-    local animId = DirectionalAnims[direction]
-    anim.AnimationId = animTable[currentDirection] ~= "" and animTable[currentDirection] or animTable.idle
-    
-    flyAnimTrack = humanoid:LoadAnimation(anim)
-    
-    -- Set animation priority to prevent interruption
-    if flyAnimTrack then
-        flyAnimTrack.Priority = Enum.AnimationPriority.Action4
-        flyAnimTrack.Looped = true
+    for k in pairs(IsFrozen) do
+        IsFrozen[k] = false
+    end
+
+    if Toggles.SuperheroMode.Value then
+        -- Superhero mode with directional animations
+        local direction = "idle"
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            direction = "forward"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            direction = "back"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            direction = "left"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            direction = "right"
+        end
+        
+        local animId = DirectionalAnims[direction]
+        local settings = DirectionalAnims.settings[direction]
+        
+        if animId and animId ~= "" then
+            local animation = Instance.new("Animation")
+            animation.AnimationId = animId
+            
+            local newTrack = humanoid:LoadAnimation(animation)
+            
+            if newTrack then
+                newTrack.Priority = Enum.AnimationPriority.Action4
+                newTrack.Looped = true
+                
+                if Flying then
+                    newTrack:Play()
+                    newTrack.TimePosition = settings.startTime
+                    
+                    local connection = RunService.Heartbeat:Connect(function()
+                        if not newTrack.IsPlaying then
+                            connection:Disconnect()
+                            return
+                        end
+                        
+                        if settings.freeze and not IsFrozen[direction] and 
+                           newTrack.TimePosition >= (settings.endTime - FREEZE_OFFSET) then
+                            newTrack:AdjustSpeed(0)
+                            IsFrozen[direction] = true
+                        elseif not settings.freeze and newTrack.TimePosition >= settings.endTime then
+                            newTrack.TimePosition = settings.startTime
+                        end
+                    end)
+                    
+                    CurrentTracks[direction] = {
+                        track = newTrack,
+                        connection = connection
+                    }
+                end
+            end
+        end
+    else
+        -- Normal flight animation mode
+        local anim = Instance.new("Animation")
+        -- Get animation ID based on rig type and selected style
+        local animTable = isR15 and FlyAnimations.R15 or FlyAnimations.R6
+        anim.AnimationId = animTable[currentFlyAnim] ~= "" and animTable[currentFlyAnim] or animTable.Default
+        
+        flyAnimTrack = humanoid:LoadAnimation(anim)
+        
+        if flyAnimTrack then
+            flyAnimTrack.Priority = Enum.AnimationPriority.Action4
+            flyAnimTrack.Looped = true
+            
+            if Flying then
+                flyAnimTrack:Play()
+            end
+        end
     end
 end
 
@@ -760,6 +818,8 @@ MovementBox:AddDropdown('FlyAnimStyle', {
     setupFlyAnimation()
 end)
 
+
+
 MovementBox:AddDropdown('FlyAnimStyleR6', {
     Values = getAnimationNames("R6"),
     Default = 1,
@@ -842,6 +902,52 @@ MovementBox:AddSlider('JumpPower', {
 })
 
 local DirectionalBox = Tabs.Main:AddRightGroupbox('Directional Animations')
+
+MovementBox:AddToggle('SuperheroMode', {
+    Text = 'Superhero Mode',
+    Default = false,
+    Tooltip = 'Toggle between normal flight and superhero directional animations',
+    Callback = function(Value)
+        -- Store the current flying state
+        local wasFlying = Flying
+        
+        if wasFlying then
+            -- Temporarily stop flying to switch animation modes
+            Flying = false
+            if flyAnimTrack then
+                flyAnimTrack:Stop()
+            end
+            stopCurrentAnimation()
+        end
+        
+        if Value then
+            -- Enable directional animations mode
+            DirectionalAnims.idle = "rbxassetid://10714347256"    -- Your directional idle
+            DirectionalAnims.forward = "rbxassetid://10714177846" -- Your directional forward
+            DirectionalAnims.back = "rbxassetid://10147823318"    -- Your directional back
+            DirectionalAnims.left = "rbxassetid://10147823318"    -- Your directional left
+            DirectionalAnims.right = "rbxassetid://10147823318"   -- Your directional right
+        else
+            -- Use normal fly animation style based on dropdown selection
+            local selectedAnim = Options.FlyAnimStyle.Value
+            currentFlyAnim = selectedAnim
+        end
+        
+        if wasFlying then
+            -- Restore flying state and setup appropriate animation
+            Flying = true
+            setupFlyAnimation()
+            if flyAnimTrack then
+                flyAnimTrack:Play()
+            end
+        end
+    end
+}):AddKeyPicker('SuperheroModeKey', {
+    Default = 'H',
+    Mode = 'Toggle',
+    Text = 'Superhero Mode',
+    NoUI = false,
+})
 
 -- Add text input for each direction
 DirectionalBox:AddInput('IdleAnim', {
@@ -1123,6 +1229,28 @@ RunService.RenderStepped:Connect(function()
         -- Reset LastPosition when not attached
         LastPosition = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') and 
             LocalPlayer.Character.HumanoidRootPart.CFrame or CFrame.new()
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and Flying and Toggles.SuperheroMode.Value then
+        if input.KeyCode == Enum.KeyCode.W or
+           input.KeyCode == Enum.KeyCode.S or
+           input.KeyCode == Enum.KeyCode.A or
+           input.KeyCode == Enum.KeyCode.D then
+            setupFlyAnimation()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if not gameProcessed and Flying and Toggles.SuperheroMode.Value then
+        if input.KeyCode == Enum.KeyCode.W or
+           input.KeyCode == Enum.KeyCode.S or
+           input.KeyCode == Enum.KeyCode.A or
+           input.KeyCode == Enum.KeyCode.D then
+            setupFlyAnimation()
+        end
     end
 end)
 
@@ -1987,7 +2115,12 @@ PlayerBox:AddDropdown('PlayerSelect', {
     Tooltip = 'Choose a player to teleport to',
 })
 
-
+Options.FlyAnimStyle:OnChanged(function(Value)
+    currentFlyAnim = Value
+    if not Toggles.SuperheroMode.Value then
+        setupFlyAnimation()
+    end
+end)
 
 -- Place this after the PlayerBox:AddDropdown
 Options.PlayerSelect:OnChanged(function()
