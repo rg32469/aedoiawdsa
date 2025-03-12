@@ -30,6 +30,105 @@ local UIS = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
 
 
+local isRolling = false
+local rollDirection = 0
+local lastRollTime = 0
+local rollCooldown = 0.1
+local rollForce = 50
+local rollSmoothness = 0.2
+
+local function performRoll(direction)
+    if not Flying or isRolling then return end
+    
+    local currentTime = tick()
+    if currentTime - lastRollTime < rollCooldown then return end
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart then return end
+    
+    isRolling = true
+    lastRollTime = currentTime
+    
+    -- Store initial state
+    local startCFrame = PrimaryPart.CFrame
+    local startTime = tick()
+    local rollDuration = 0.6 -- Time to complete one roll
+    
+    -- Create smooth animation curve
+    local function getRollProgress(elapsed)
+        local baseProgress = math.min(elapsed / rollDuration, 1)
+        
+        -- Smooth acceleration and deceleration
+        if baseProgress < 0.3 then
+            return EasingFunctions.easeInQuad(baseProgress / 0.3) * 0.3
+        elseif baseProgress < 0.7 then
+            return 0.3 + (baseProgress - 0.3) * (0.4 / 0.4)
+        else
+            local recoveryProgress = (baseProgress - 0.7) / 0.3
+            return 0.7 + EasingFunctions.easeOutQuad(recoveryProgress) * 0.3
+        end
+    end
+    
+    local lastRotation = 0
+    local currentRotation = 0
+    local targetRotation = 0
+    
+    local rollConnection
+    rollConnection = RunService.RenderStepped:Connect(function()
+        local elapsed = tick() - startTime
+        local progress = getRollProgress(elapsed / rollDuration)
+        
+        if elapsed >= rollDuration * 1.2 then -- Allow 20% extra time for recovery
+            isRolling = false
+            rollConnection:Disconnect()
+            return
+        end
+        
+        -- Calculate rotation angle (direction: -1 for left, 1 for right)
+        local baseRotation = direction * (math.pi * 2 * progress)
+        targetRotation = baseRotation
+        
+        -- Smooth out the rotation
+        currentRotation = currentRotation + (targetRotation - currentRotation) * rollSmoothness
+        
+        -- Calculate rotation difference for velocity adjustment
+        local rotationDelta = currentRotation - lastRotation
+        lastRotation = currentRotation
+        
+        -- Apply the roll rotation while maintaining forward direction
+        local lookVector = Camera.CFrame.LookVector
+        local rightVector = Camera.CFrame.RightVector
+        
+        -- Create the roll rotation around the look vector
+        local rollCFrame = CFrame.fromAxisAngle(lookVector, currentRotation)
+        
+        -- Apply the rotation while maintaining position and forward direction
+        PrimaryPart.CFrame = CFrame.new(PrimaryPart.Position) * 
+                            CFrame.fromLookVector(lookVector, rightVector) *
+                            rollCFrame
+        
+        -- Apply force in the direction of flight during roll
+        if BodyVelocity then
+            local flyDirection = Camera.CFrame.LookVector
+            local sideForce = rightVector * (direction * rollForce * (1 - progress))
+            
+            BodyVelocity.Velocity = (flyDirection * Options.FlySpeed.Value) + sideForce
+        end
+    end)
+end
+
+-- Add input handling for roll controls
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and Flying and Toggles.RollEnabled.Value then
+        if input.KeyCode == Enum.KeyCode.Q then
+            performRoll(-1) -- Roll left
+        elseif input.KeyCode == Enum.KeyCode.E then
+            performRoll(1)  -- Roll right
+        end
+    end
+end)
+
 local CurrentTracks = {}
 local IsFrozen = {}
 local FREEZE_OFFSET = 0.5 -- How many seconds before endTime to freeze
@@ -66,6 +165,94 @@ local EasingFunctions = {
         return math.pow(2, -10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
     end
 } 
+
+local isRolling = false
+local rollDirection = 0
+local lastRollTime = 0
+local rollCooldown = 0.1
+local rollForce = 50
+local rollSmoothness = 0.2
+
+local function performRoll(direction)
+    if not Flying or isRolling then return end
+    
+    local currentTime = tick()
+    if currentTime - lastRollTime < rollCooldown then return end
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart then return end
+    
+    isRolling = true
+    lastRollTime = currentTime
+    
+    -- Store initial state
+    local startCFrame = PrimaryPart.CFrame
+    local startTime = tick()
+    local rollDuration = 0.6 -- Time to complete one roll
+    
+    -- Create smooth animation curve
+    local function getRollProgress(elapsed)
+        local baseProgress = math.min(elapsed / rollDuration, 1)
+        
+        -- Smooth acceleration and deceleration
+        if baseProgress < 0.3 then
+            return EasingFunctions.easeInQuad(baseProgress / 0.3) * 0.3
+        elseif baseProgress < 0.7 then
+            return 0.3 + (baseProgress - 0.3) * (0.4 / 0.4)
+        else
+            local recoveryProgress = (baseProgress - 0.7) / 0.3
+            return 0.7 + EasingFunctions.easeOutQuad(recoveryProgress) * 0.3
+        end
+    end
+    
+    local lastRotation = 0
+    local currentRotation = 0
+    local targetRotation = 0
+    
+    local rollConnection
+    rollConnection = RunService.RenderStepped:Connect(function()
+        local elapsed = tick() - startTime
+        local progress = getRollProgress(elapsed / rollDuration)
+        
+        if elapsed >= rollDuration * 1.2 then -- Allow 20% extra time for recovery
+            isRolling = false
+            rollConnection:Disconnect()
+            return
+        end
+        
+        -- Calculate rotation angle (direction: -1 for left, 1 for right)
+        local baseRotation = direction * (math.pi * 2 * progress)
+        targetRotation = baseRotation
+        
+        -- Smooth out the rotation
+        currentRotation = currentRotation + (targetRotation - currentRotation) * rollSmoothness
+        
+        -- Calculate rotation difference for velocity adjustment
+        local rotationDelta = currentRotation - lastRotation
+        lastRotation = currentRotation
+        
+        -- Apply the roll rotation while maintaining forward direction
+        local lookVector = Camera.CFrame.LookVector
+        local rightVector = Camera.CFrame.RightVector
+        
+        -- Create the roll rotation around the look vector
+        local rollCFrame = CFrame.fromAxisAngle(lookVector, currentRotation)
+        
+        -- Apply the rotation while maintaining position and forward direction
+        PrimaryPart.CFrame = CFrame.new(PrimaryPart.Position) * 
+                            CFrame.fromLookVector(lookVector, rightVector) *
+                            rollCFrame
+        
+        -- Apply force in the direction of flight during roll
+        if BodyVelocity then
+            local flyDirection = Camera.CFrame.LookVector
+            local sideForce = rightVector * (direction * rollForce * (1 - progress))
+            
+            BodyVelocity.Velocity = (flyDirection * Options.FlySpeed.Value) + sideForce
+        end
+    end)
+end
 
 local FlyAnimations = {
     R15 = {
@@ -120,65 +307,43 @@ local DirectionalAnims = {
 }
 
 local NewModeAnims = {
-    idle = "rbxassetid://14352362059", -- Default idle animation
-    forward = "rbxassetid://", -- Default forward animation
-    back = "rbxassetid://", -- Default back animation
-    left = "rbxassetid://", -- Default left animation
-    right = "rbxassetid://", -- Default right animation
-    -- Add new combo animations
-    forwardLeft = "rbxassetid://YOUR_ANIMATION_ID",
-    forwardRight = "rbxassetid://YOUR_ANIMATION_ID",
-    backLeft = "rbxassetid://YOUR_ANIMATION_ID",
-    backRight = "rbxassetid://YOUR_ANIMATION_ID",
+    idle = "rbxassetid://10478338114",
+    forward = "rbxassetid://10714022275",
+    back = "rbxassetid://15549124879",
+    left = "rbxassetid://750780242",
+    right = "rbxassetid://750780242",
     settings = {
         idle = {
-            startTime = 0,
-            endTime = 1,
+            startTime = 0.5,
+            endTime = 3,
             freeze = true
         },
         forward = {
-            startTime = 3.2,
-            endTime = 5,
+            startTime = 0.3,
+            endTime = 2,
             freeze = true
         },
         back = {
-            startTime = 4,
-            endTime = 5,
+            startTime = 0,
+            endTime = 2.5,
             freeze = true
         },
         left = {
-            startTime = 2,
-            endTime = 3.5,
-            freeze = true
+            startTime = 0,
+            endTime = 8,
+            freeze = false
         },
         right = {
-            startTime = 5,
-            endTime = 9.5,
-            freeze = true
-        },
-        -- Add settings for combo animations
-        forwardLeft = {
             startTime = 0,
-            endTime = 3,
-            freeze = true
-        },
-        forwardRight = {
-            startTime = 0,
-            endTime = 3,
-            freeze = true
-        },
-        backLeft = {
-            startTime = 0,
-            endTime = 3,
-            freeze = true
-        },
-        backRight = {
-            startTime = 0,
-            endTime = 3,
-            freeze = true
+            endTime = 8,
+            freeze = false
         }
     }
 }
+
+local CurrentTracks = {}
+local IsFrozen = {}
+local FREEZE_OFFSET = 0.5
 
 local FlipSystem = {
     currentRotation = 0,
@@ -291,8 +456,60 @@ local function setupFlyAnimation()
         IsFrozen[k] = false
     end
 
-    if Toggles.SuperheroMode.Value then
-        -- Superhero mode with directional animations
+    if Toggles.NewMode.Value then
+        -- New Mode with directional animations
+        local direction = "idle"
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            direction = "forward"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            direction = "back"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            direction = "left"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            direction = "right"
+        end
+        
+        local animId = NewModeAnims[direction]
+        local settings = NewModeAnims.settings[direction]
+        
+        if animId and animId ~= "" then
+            local animation = Instance.new("Animation")
+            animation.AnimationId = animId
+            
+            local newTrack = humanoid:LoadAnimation(animation)
+            
+            if newTrack then
+                newTrack.Priority = Enum.AnimationPriority.Action4
+                newTrack.Looped = true
+                
+                if Flying then
+                    newTrack:Play()
+                    newTrack.TimePosition = settings.startTime
+                    
+                    local connection = RunService.Heartbeat:Connect(function()
+                        if not newTrack.IsPlaying then
+                            connection:Disconnect()
+                            return
+                        end
+                        
+                        if settings.freeze and not IsFrozen[direction] and 
+                           newTrack.TimePosition >= (settings.endTime - FREEZE_OFFSET) then
+                            newTrack:AdjustSpeed(0)
+                            IsFrozen[direction] = true
+                        elseif not settings.freeze and newTrack.TimePosition >= settings.endTime then
+                            newTrack.TimePosition = settings.startTime
+                        end
+                    end)
+                    
+                    CurrentTracks[direction] = {
+                        track = newTrack,
+                        connection = connection
+                    }
+                end
+            end
+        end
+    elseif Toggles.SuperheroMode.Value then
+        -- Your existing Superhero mode code
         local direction = "idle"
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             direction = "forward"
@@ -601,6 +818,14 @@ RunService.RenderStepped:Connect(function()
             )
         end
     end
+    
+    -- Add to your existing FlipSystem settings
+FlipSystem.settings.rollSpeed = 2.5
+FlipSystem.settings.rollAcceleration = 0.35
+FlipSystem.settings.rollThresholds = {
+    left = {0.3, 0.7},
+    right = {0.3, 0.7}
+}
 end)
 
 -- Create a custom cursor with improved settings
@@ -680,7 +905,7 @@ local FlipSettingsBox = Tabs.FlyingFlips:AddRightGroupbox('Flip Settings')
 -- Update your Boxes declaration to include the new hitbox section
 local Boxes = {
     MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
-    MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
+    MainRight = Tabs.Main:AddRightGroupbox('STATUS : FREE'),
     HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander (PAID)'),
     FuckSection = Tabs.Players:AddRightGroupbox('Fuck Settings')  -- New group box in Players tab
 }
@@ -913,11 +1138,7 @@ MovementBox:AddToggle('NewMode', {
             setupFlyAnimation()
         end
     end
-}):AddKeyPicker('NewModeKey', {
-    Default = 'M',
-    Mode = 'Toggle',
-    Text = 'New Mode',
-    NoUI = false
+
 })
 
 MovementBox:AddToggle('SuperheroMode', {
@@ -1281,6 +1502,16 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and Flying and Toggles.RollEnabled.Value then
+        if input.KeyCode == Enum.KeyCode.Q then
+            performRoll(-1) -- Roll left
+        elseif input.KeyCode == Enum.KeyCode.E then
+            performRoll(1)  -- Roll right
+        end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if Flying and not gameProcessed then
         if input.KeyCode == Enum.KeyCode.W or
            input.KeyCode == Enum.KeyCode.A or
@@ -1446,6 +1677,56 @@ FlipsBox:AddSlider('FlipAcceleration', {
     Tooltip = 'How quickly the flip reaches max speed'
 }):OnChanged(function(Value)
     FlipSystem.settings.acceleration = Value / 100
+end)
+
+local FlipsBox = Tabs.FlyingFlips:AddLeftGroupbox('Roll Controls')
+
+FlipsBox:AddToggle('RollEnabled', {
+    Text = 'Enable Rolling',
+    Default = false,
+    Tooltip = 'Enable barrel roll functionality'
+}):AddKeyPicker('RollToggleKey', {
+    Default = 'R',
+    Mode = 'Toggle',
+    Text = 'Roll Toggle',
+    NoUI = false
+})
+
+FlipsBox:AddLabel('Left Roll: Q | Right Roll: E')
+
+local RollSettingsBox = Tabs.FlyingFlips:AddRightGroupbox('Roll Settings')
+
+RollSettingsBox:AddSlider('RollSpeed', {
+    Text = 'Roll Speed',
+    Default = 2.5,
+    Min = 0.5,
+    Max = 5,
+    Rounding = 2,
+    Compact = false,
+}):OnChanged(function(Value)
+    FlipSystem.settings.rollSpeed = Value
+end)
+
+RollSettingsBox:AddSlider('RollForce', {
+    Text = 'Roll Force',
+    Default = 50,
+    Min = 10,
+    Max = 100,
+    Rounding = 0,
+    Compact = false,
+}):OnChanged(function(Value)
+    rollForce = Value
+end)
+
+RollSettingsBox:AddSlider('RollSmoothness', {
+    Text = 'Roll Smoothness',
+    Default = 0.2,
+    Min = 0.1,
+    Max = 0.5,
+    Rounding = 2,
+    Compact = false,
+}):OnChanged(function(Value)
+    rollSmoothness = Value
 end)
 
 -- Combat Features Implementation
