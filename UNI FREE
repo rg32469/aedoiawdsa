@@ -119,6 +119,45 @@ local DirectionalAnims = {
     }
 }
 
+local NewModeAnims = {
+    idle = "rbxassetid://10478338114",
+    forward = "rbxassetid://10714022275",
+    back = "rbxassetid://15549124879",
+    left = "rbxassetid://750780242",
+    right = "rbxassetid://750780242",
+    settings = {
+        idle = {
+            startTime = 0.5,
+            endTime = 3,
+            freeze = true
+        },
+        forward = {
+            startTime = 0.3,
+            endTime = 2,
+            freeze = true
+        },
+        back = {
+            startTime = 0,
+            endTime = 2.5,
+            freeze = true
+        },
+        left = {
+            startTime = 0,
+            endTime = 8,
+            freeze = false
+        },
+        right = {
+            startTime = 0,
+            endTime = 8,
+            freeze = false
+        }
+    }
+}
+
+local CurrentTracks = {}
+local IsFrozen = {}
+local FREEZE_OFFSET = 0.5
+
 local FlipSystem = {
     currentRotation = 0,
     rotationVelocity = 0,
@@ -230,8 +269,60 @@ local function setupFlyAnimation()
         IsFrozen[k] = false
     end
 
-    if Toggles.SuperheroMode.Value then
-        -- Superhero mode with directional animations
+    if Toggles.NewMode.Value then
+        -- New Mode with directional animations
+        local direction = "idle"
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            direction = "forward"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            direction = "back"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            direction = "left"
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            direction = "right"
+        end
+        
+        local animId = NewModeAnims[direction]
+        local settings = NewModeAnims.settings[direction]
+        
+        if animId and animId ~= "" then
+            local animation = Instance.new("Animation")
+            animation.AnimationId = animId
+            
+            local newTrack = humanoid:LoadAnimation(animation)
+            
+            if newTrack then
+                newTrack.Priority = Enum.AnimationPriority.Action4
+                newTrack.Looped = true
+                
+                if Flying then
+                    newTrack:Play()
+                    newTrack.TimePosition = settings.startTime
+                    
+                    local connection = RunService.Heartbeat:Connect(function()
+                        if not newTrack.IsPlaying then
+                            connection:Disconnect()
+                            return
+                        end
+                        
+                        if settings.freeze and not IsFrozen[direction] and 
+                           newTrack.TimePosition >= (settings.endTime - FREEZE_OFFSET) then
+                            newTrack:AdjustSpeed(0)
+                            IsFrozen[direction] = true
+                        elseif not settings.freeze and newTrack.TimePosition >= settings.endTime then
+                            newTrack.TimePosition = settings.startTime
+                        end
+                    end)
+                    
+                    CurrentTracks[direction] = {
+                        track = newTrack,
+                        connection = connection
+                    }
+                end
+            end
+        end
+    elseif Toggles.SuperheroMode.Value then
+        -- Your existing Superhero mode code
         local direction = "idle"
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             direction = "forward"
@@ -619,7 +710,7 @@ local FlipSettingsBox = Tabs.FlyingFlips:AddRightGroupbox('Flip Settings')
 -- Update your Boxes declaration to include the new hitbox section
 local Boxes = {
     MainLeft = Tabs.Main:AddLeftGroupbox('Combat Features'),
-    MainRight = Tabs.Main:AddRightGroupbox('STATUS : PAID'),
+    MainRight = Tabs.Main:AddRightGroupbox('STATUS : FREE'),
     HitboxSection = Tabs.Main:AddLeftGroupbox('Hitbox Expander (PAID)'),
     FuckSection = Tabs.Players:AddRightGroupbox('Fuck Settings')  -- New group box in Players tab
 }
@@ -833,6 +924,27 @@ MovementBox:AddSlider('JumpPower', {
 })
 
 local DirectionalBox = Tabs.Main:AddRightGroupbox('Directional Animations')
+
+MovementBox:AddToggle('NewMode', {
+    Text = 'Super Villan Mode',
+    Default = false,
+    Tooltip = 'Toggle new animation mode with directional combos',
+    Callback = function(Value)
+        isNewMode = Value
+        if Flying then
+            -- Stop current animations
+            if flyAnimTrack then
+                flyAnimTrack:Stop()
+                flyAnimTrack:Destroy()
+                flyAnimTrack = nil
+            end
+            stopCurrentAnimation()
+            -- Setup new animations
+            setupFlyAnimation()
+        end
+    end
+
+})
 
 MovementBox:AddToggle('SuperheroMode', {
     Text = 'Superhero Mode',
@@ -1610,6 +1722,9 @@ Boxes.MainLeft:AddToggle('AimClosestToMouse', {
 }):OnChanged(function(Value)
     Configuration.AimClosestToMouse = Value
 end)
+
+
+
 
 
 local function TPWalk(speed)
