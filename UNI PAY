@@ -119,6 +119,67 @@ local DirectionalAnims = {
     }
 }
 
+local NewModeAnims = {
+    idle = "rbxassetid://14352362059", -- Default idle animation
+    forward = "rbxassetid://", -- Default forward animation
+    back = "rbxassetid://", -- Default back animation
+    left = "rbxassetid://", -- Default left animation
+    right = "rbxassetid://", -- Default right animation
+    -- Add new combo animations
+    forwardLeft = "rbxassetid://YOUR_ANIMATION_ID",
+    forwardRight = "rbxassetid://YOUR_ANIMATION_ID",
+    backLeft = "rbxassetid://YOUR_ANIMATION_ID",
+    backRight = "rbxassetid://YOUR_ANIMATION_ID",
+    settings = {
+        idle = {
+            startTime = 0,
+            endTime = 1,
+            freeze = true
+        },
+        forward = {
+            startTime = 3.2,
+            endTime = 5,
+            freeze = true
+        },
+        back = {
+            startTime = 4,
+            endTime = 5,
+            freeze = true
+        },
+        left = {
+            startTime = 2,
+            endTime = 3.5,
+            freeze = true
+        },
+        right = {
+            startTime = 5,
+            endTime = 9.5,
+            freeze = true
+        },
+        -- Add settings for combo animations
+        forwardLeft = {
+            startTime = 0,
+            endTime = 3,
+            freeze = true
+        },
+        forwardRight = {
+            startTime = 0,
+            endTime = 3,
+            freeze = true
+        },
+        backLeft = {
+            startTime = 0,
+            endTime = 3,
+            freeze = true
+        },
+        backRight = {
+            startTime = 0,
+            endTime = 3,
+            freeze = true
+        }
+    }
+}
+
 local FlipSystem = {
     currentRotation = 0,
     rotationVelocity = 0,
@@ -833,6 +894,31 @@ MovementBox:AddSlider('JumpPower', {
 })
 
 local DirectionalBox = Tabs.Main:AddRightGroupbox('Directional Animations')
+
+MovementBox:AddToggle('NewMode', {
+    Text = 'New Animation Mode',
+    Default = false,
+    Tooltip = 'Toggle new animation mode with directional combos',
+    Callback = function(Value)
+        isNewMode = Value
+        if Flying then
+            -- Stop current animations
+            if flyAnimTrack then
+                flyAnimTrack:Stop()
+                flyAnimTrack:Destroy()
+                flyAnimTrack = nil
+            end
+            stopCurrentAnimation()
+            -- Setup new animations
+            setupFlyAnimation()
+        end
+    end
+}):AddKeyPicker('NewModeKey', {
+    Default = 'M',
+    Mode = 'Toggle',
+    Text = 'New Mode',
+    NoUI = false
+})
 
 MovementBox:AddToggle('SuperheroMode', {
     Text = 'Superhero Mode',
