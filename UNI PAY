@@ -30,14 +30,10 @@ local UIS = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
 
 
-
-local DirectionalAnims = {
-    idle = "rbxassetid://750780242", -- As specified
-    forward = "",
-    back = "",
-    left = "",
-    right = ""
-}
+local CurrentTracks = {}
+local IsFrozen = {}
+local FREEZE_OFFSET = 0.5 -- How many seconds before endTime to freeze
+local RunService = game:GetService("RunService")
 
 local FuckPlayerEnabled = false
 local OscillationSpeed = 2
@@ -88,23 +84,22 @@ local FlyAnimations = {
 
 
 
-DirectionalAnims = {
-    idle = "rbxassetid://750780242",
-    forward = "",
+local DirectionalAnims = {
+    idle = "rbxassetid://10714347256",
+    forward = "rbxassetid://10714177846",
     back = "",
     left = "",
     right = "",
-    -- Add timing settings for each animation
     settings = {
         idle = {
-            startTime = 3,
-            endTime = 5,
-            freeze = true
+            startTime = 1, -- Starting point of animation
+            endTime = 5,  -- When to freeze/loop
+            freeze = false   -- Enable freezing for idle
         },
         forward = {
-            startTime = 0,
-            endTime = 1,
-            freeze = false
+            startTime = 3.2,
+            endTime = 5,
+            freeze = true
         },
         back = {
             startTime = 0,
@@ -206,7 +201,7 @@ local function setupFlyAnimation()
     end
     
     -- Get animation ID based on direction
-    local animTable = isR15 and DirectionalAnimations.R15 or DirectionalAnimations.R6
+    local animId = DirectionalAnims[direction]
     anim.AnimationId = animTable[currentDirection] ~= "" and animTable[currentDirection] or animTable.idle
     
     flyAnimTrack = humanoid:LoadAnimation(anim)
@@ -235,6 +230,12 @@ local function setupFlyAnimation()
     if flyAnimTrack then
         flyAnimTrack:Stop()
         flyAnimTrack:Destroy()
+        flyAnimTrack = nil
+    end
+    
+    -- Reset frozen state
+    for k in pairs(IsFrozen) do
+        IsFrozen[k] = false
     end
     
     -- Determine which animation to use based on movement
@@ -252,37 +253,53 @@ local function setupFlyAnimation()
     local animId = DirectionalAnims[direction]
     local settings = DirectionalAnims.settings[direction]
     
-    local anim = Instance.new("Animation")
-    anim.AnimationId = animId
-    
-    flyAnimTrack = humanoid:LoadAnimation(anim)
-    
-    if flyAnimTrack then
-        flyAnimTrack.Priority = Enum.AnimationPriority.Action4
-        flyAnimTrack.Looped = true
+    if animId ~= "" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = animId
         
-        if Flying then
-            flyAnimTrack:Play()
-            flyAnimTrack.TimePosition = settings.startTime
+        flyAnimTrack = humanoid:LoadAnimation(animation)
+        
+        if flyAnimTrack then
+            flyAnimTrack.Priority = Enum.AnimationPriority.Action4
+            flyAnimTrack.Looped = true
             
-            local connection
-            connection = RunService.Heartbeat:Connect(function()
-                if not flyAnimTrack or not flyAnimTrack.IsPlaying then
-                    if connection then connection:Disconnect() end
-                    return
+            if Flying then
+                flyAnimTrack:Play()
+                flyAnimTrack.TimePosition = settings.startTime
+                
+                -- Clear existing connection if any
+                if CurrentTracks[direction] and CurrentTracks[direction].connection then
+                    CurrentTracks[direction].connection:Disconnect()
                 end
                 
-                if settings.freeze and not IsFrozen[direction] and 
-                   flyAnimTrack.TimePosition >= (settings.endTime - FREEZE_OFFSET) then
-                    flyAnimTrack:AdjustSpeed(0)
-                    IsFrozen[direction] = true
-                    return
-                end
+                -- Create new connection
+                local connection
+                connection = RunService.Heartbeat:Connect(function()
+                    if not flyAnimTrack or not flyAnimTrack.IsPlaying then
+                        if connection then connection:Disconnect() end
+                        return
+                    end
+                    
+                    -- Check if we should freeze
+                    if settings.freeze and not IsFrozen[direction] and 
+                       flyAnimTrack.TimePosition >= (settings.endTime - FREEZE_OFFSET) then
+                        flyAnimTrack:AdjustSpeed(0) -- Stop the animation
+                        IsFrozen[direction] = true
+                        return
+                    end
+                    
+                    -- Normal looping behavior if not freezing
+                    if not settings.freeze and flyAnimTrack.TimePosition >= settings.endTime then
+                        flyAnimTrack.TimePosition = settings.startTime
+                    end
+                end)
                 
-                if not settings.freeze and flyAnimTrack.TimePosition >= settings.endTime then
-                    flyAnimTrack.TimePosition = settings.startTime
-                end
-            end)
+                -- Store the connection
+                CurrentTracks[direction] = {
+                    track = flyAnimTrack,
+                    connection = connection
+                }
+            end
         end
     end
 end
@@ -809,7 +826,7 @@ local DirectionalBox = Tabs.Main:AddRightGroupbox('Directional Animations')
 -- Add text input for each direction
 DirectionalBox:AddInput('IdleAnim', {
     Text = 'Idle Animation',
-    Default = "750780242",
+    Default = "10714347256",
     Placeholder = 'Animation ID',
     Numeric = true,
     Finished = true,
@@ -825,7 +842,7 @@ DirectionalBox:AddInput('IdleAnim', {
 
 DirectionalBox:AddInput('ForwardAnim', {
     Text = 'Forward Animation',
-    Default = "",
+    Default = "10714177846",
     Placeholder = 'Animation ID',
     Numeric = true,
     Finished = true,
@@ -1095,18 +1112,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
            input.KeyCode == Enum.KeyCode.A or
            input.KeyCode == Enum.KeyCode.S or
            input.KeyCode == Enum.KeyCode.D then
-            setupFlyAnimation() -- Update animation based on new movement
-        end
-    end
-end)
-
--- Add key detection for animation changes
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if Flying and not gameProcessed then
-        if input.KeyCode == Enum.KeyCode.W or
-           input.KeyCode == Enum.KeyCode.A or
-           input.KeyCode == Enum.KeyCode.S or
-           input.KeyCode == Enum.KeyCode.D then
+            -- Reset frozen states when changing direction
+            for k in pairs(IsFrozen) do
+                IsFrozen[k] = false
+            end
             setupFlyAnimation()
         end
     end
@@ -1119,17 +1128,6 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
            input.KeyCode == Enum.KeyCode.S or
            input.KeyCode == Enum.KeyCode.D then
             setupFlyAnimation()
-        end
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if Flying and not gameProcessed then
-        if input.KeyCode == Enum.KeyCode.W or
-           input.KeyCode == Enum.KeyCode.A or
-           input.KeyCode == Enum.KeyCode.S or
-           input.KeyCode == Enum.KeyCode.D then
-            setupFlyAnimation() -- Return to idle animation when movement keys released
         end
     end
 end)
