@@ -22,6 +22,17 @@ local lastHoverTime = tick() -- Track time for smooth hover
 
 local isSuperheroMode = false -- Add this with your other variables at the top
 
+local BarrelRollSystem = {
+    isRolling = false,
+    currentRotation = 0,
+    rollVelocity = 0,
+    lastUpdate = tick(),
+    settings = {
+        rollSpeed = 2.5,
+        smoothness = 0.1
+    }
+}
+
 -- Variables for both features
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -401,7 +412,35 @@ local function getAnimationNames(rigType)
     return names
 end
 
+local function performBarrelRoll(direction)
+    if not Flying or BarrelRollSystem.isRolling then return end
+    
+    local Character = LocalPlayer.Character
+    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not PrimaryPart or not BodyGyro then return end
 
+    BarrelRollSystem.isRolling = true
+    local startTime = tick()
+    local currentGyroRotation = BodyGyro.CFrame
+    
+    local rollConnection
+    rollConnection = RunService.RenderStepped:Connect(function()
+        local elapsed = tick() - startTime
+        local progress = math.min(elapsed / 0.8, 1)
+        
+        if elapsed >= 1.0 then
+            BarrelRollSystem.isRolling = false
+            rollConnection:Disconnect()
+            return
+        end
+        
+        local rollAngle = direction * (math.pi * 2 * progress)
+        local lookVector = Camera.CFrame.LookVector
+        local rollRotation = CFrame.fromAxisAngle(lookVector, rollAngle)
+        
+        BodyGyro.CFrame = currentGyroRotation * rollRotation
+    end)
+end
 
 local function performFlip(direction)
     if not Flying or isFlipping then return end
@@ -633,6 +672,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+
+
+
 -- Create a custom cursor with improved settings
 -- Create a custom cursor with precise positioning
 -- Create a custom cursor with exact Roblox cursor positioning
@@ -704,8 +746,12 @@ local Tabs = {
     ['UI Settings'] = Window:AddTab('UI Settings')
 }
 
+
+
 local FlipsBox = Tabs.FlyingFlips:AddLeftGroupbox('Flip Controls')
 local FlipSettingsBox = Tabs.FlyingFlips:AddRightGroupbox('Flip Settings')
+
+
 
 -- Update your Boxes declaration to include the new hitbox section
 local Boxes = {
@@ -1452,6 +1498,9 @@ FlipsBox:AddToggle('BackFlipEnabled', {
     NoUI = false,
 })
 
+
+
+
 FlipsBox:AddSlider('FlipSpeed', {
     Text = 'Flip Speed',
     Default = 3.12,
@@ -1473,6 +1522,8 @@ FlipsBox:AddSlider('FlipAcceleration', {
 }):OnChanged(function(Value)
     FlipSystem.settings.acceleration = Value / 100
 end)
+
+
 
 -- Combat Features Implementation
 local Players = game:GetService("Players")
@@ -1865,6 +1916,8 @@ MovementBox:AddSlider('HoverSpeed', {
     end
 })
 
+
+
 RunService.Heartbeat:Connect(function()
     if TPWalking then
         TPWalk(Options.WalkSpeed.Value)
@@ -1980,6 +2033,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
         end
     end
 end)
+
 
 
 local function IsTargetVisible(targetPart)
@@ -2342,6 +2396,8 @@ PlayerBox:AddSlider('UpDownOffset', {
     )
 end)
 
+
+
 -- Update player list when players join/leave
 Players.PlayerAdded:Connect(function(player)
     Options.PlayerSelect.Values = GetPlayerList()
@@ -2544,6 +2600,8 @@ RunService.RenderStepped:Connect(function(deltaTime)
         updateFlips(deltaTime)
     end
 end)
+
+
 
 -- Initialize Theme and Save Manager
 ThemeManager:SetLibrary(Library)
