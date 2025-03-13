@@ -22,6 +22,10 @@ local lastHoverTime = tick() -- Track time for smooth hover
 
 local isSuperheroMode = false -- Add this with your other variables at the top
 
+local BarrelRollActive = false
+local LastBarrelRollTime = 0
+local BarrelRollCooldown = 0.5 -- Prevent spam
+
 local BarrelRollSystem = {
     isRolling = false,
     currentRotation = 0,
@@ -413,128 +417,55 @@ local function getAnimationNames(rigType)
 end
 
 local function performBarrelRoll(direction)
-    if not Flying or BarrelRollSystem.isRolling then return end
+    if not Flying or BarrelRollActive or not Toggles.BarrelRollEnabled.Value then return end
+    if tick() - LastBarrelRollTime < BarrelRollCooldown then return end
     
     local Character = LocalPlayer.Character
-    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
-    if not PrimaryPart or not BodyGyro then return end
+    if not Character then return end
+    
+    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart or not BodyGyro then return end
 
-    BarrelRollSystem.isRolling = true
+    BarrelRollActive = true
+    LastBarrelRollTime = tick()
+    
     local startTime = tick()
-    local currentGyroRotation = BodyGyro.CFrame
+    local rollDuration = 0.8
+    local initialCFrame = BodyGyro.CFrame
     
     local rollConnection
     rollConnection = RunService.RenderStepped:Connect(function()
-        local elapsed = tick() - startTime
-        local progress = math.min(elapsed / 0.8, 1)
-        
-        if elapsed >= 1.0 then
-            BarrelRollSystem.isRolling = false
-            rollConnection:Disconnect()
+        if not Flying or not BodyGyro or not Toggles.BarrelRollEnabled.Value then
+            if rollConnection then
+                rollConnection:Disconnect()
+            end
+            BarrelRollActive = false
             return
         end
-        
-        local rollAngle = direction * (math.pi * 2 * progress)
-        local lookVector = Camera.CFrame.LookVector
-        local rollRotation = CFrame.fromAxisAngle(lookVector, rollAngle)
-        
-        BodyGyro.CFrame = currentGyroRotation * rollRotation
-    end)
-end
 
-local function performFlip(direction)
-    if not Flying or isFlipping then return end
-    
-    local currentTime = tick()
-    if currentTime - lastFlipTime < flipCooldown then return end
-    
-    local Character = LocalPlayer.Character
-    local PrimaryPart = Character and Character:FindFirstChild("HumanoidRootPart")
-if not PrimaryPart then return end
-    
-isFlipping = true
-lastFlipTime = currentTime
-
--- Store initial state
-local startCFrame = PrimaryPart.CFrame
-local startTime = tick()
-local startVelocity = BodyVelocity and BodyVelocity.Velocity or Vector3.new(0, 0, 0)
-local initialLookVector = Camera.CFrame.LookVector
-
--- Create a smoother animation curve
-local function getFlipProgress(elapsed)
-    local baseProgress = math.min(elapsed / flipDuration, 1)
-    
-    -- Phase 1: Initial smooth acceleration (0-40%)
-    if baseProgress < 0.4 then
-        return EasingFunctions.easeInQuad(baseProgress / 0.4) * 0.4
-    -- Phase 2: Main flip rotation (40-85%)
-    elseif baseProgress < 0.85 then
-        return 0.4 + (baseProgress - 0.4) * (0.45 / 0.45)
-    -- Phase 3: Overshoot and recovery (85-100%)
-    else
-        local overshootProgress = (baseProgress - 0.85) / 0.15
-        return 0.85 + EasingFunctions.easeOutElastic(overshootProgress) * 0.15
-    end
-end
-
-local lastRotation = 0
-local currentRotation = 0
-    local targetRotation = 0
-    
-    local flipConnection
-    flipConnection = RunService.RenderStepped:Connect(function()
         local elapsed = tick() - startTime
-        local progress = getFlipProgress(elapsed / flipDuration)
+        local alpha = math.min(elapsed / rollDuration, 1)
         
-        if elapsed >= flipDuration * 1.2 then -- Allow 20% extra time for recovery
-            isFlipping = false
-            flipConnection:Disconnect()
-            return
-        end
+        local speedMultiplier = BarrelRollSystem.settings.rollSpeed
+        local rotationAngle = direction * (math.pi * 2 * alpha) * speedMultiplier
         
-        -- Calculate smooth rotation with overshoot
-        local baseRotation = direction * (math.pi * 2 * progress)
-        targetRotation = baseRotation
+        local upVector = Camera.CFrame.UpVector
+        local rollCFrame = CFrame.fromAxisAngle(upVector, rotationAngle)
         
-        -- Add overshoot effect near the end
-        if progress > 0.85 then
-            local overshootProgress = (progress - 0.85) / 0.15
-            local overshootEffect = math.sin(overshootProgress * math.pi) * overshootAmount * direction
-            targetRotation = targetRotation + overshootEffect
-        end
+        -- Apply the rotation
+        BodyGyro.CFrame = initialCFrame * rollCFrame
         
-        -- Smooth out the rotation
-        currentRotation = currentRotation + (targetRotation - currentRotation) * smoothingFactor
-        
-        -- Calculate rotation difference for velocity adjustment
-        local rotationDelta = currentRotation - lastRotation
-        lastRotation = currentRotation
-        
-        -- Apply the rotation while maintaining position
-        local newCFrame = startCFrame * CFrame.Angles(-currentRotation, 0, 0)
-        PrimaryPart.CFrame = newCFrame
-        
-        -- Calculate and apply dynamic force based on flip phase
-        local forceMultiplier = 1
-        if progress < 0.2 then
-            forceMultiplier = EasingFunctions.easeInQuad(progress / 0.2)
-        elseif progress > 0.8 then
-            forceMultiplier = EasingFunctions.easeOutQuad((1 - progress) / 0.2)
-        end
-        
-        -- Apply force in the direction of flight with smooth transitions
-        local flyDirection = Camera.CFrame.LookVector
-        local verticalComponent = Vector3.new(0, rotationDelta * flipForce, 0)
-        local horizontalComponent = flyDirection * flipForce * forceMultiplier
-        
+        -- Maintain current velocity without any changes
         if BodyVelocity then
-            local targetVelocity = horizontalComponent + verticalComponent
-            BodyVelocity.Velocity = Vector3.new(
-                targetVelocity.X,
-                math.clamp(targetVelocity.Y, -flipForce, flipForce),
-                targetVelocity.Z
-            )
+            -- This will just maintain whatever velocity was there before the roll
+            -- No additional modifications to make it truly seamless
+        end
+
+        if alpha >= 1 then
+            BarrelRollActive = false
+            if rollConnection then
+                rollConnection:Disconnect()
+            end
         end
     end)
 end
@@ -873,6 +804,46 @@ Boxes.FuckSection:AddSlider('OscillationDistance', {
 end)
 
 local MovementBox = Tabs.Main:AddRightGroupbox('Movement Controls')
+
+MovementBox:AddToggle('BarrelRollEnabled', {
+    Text = 'Barrel Roll',
+    Default = false,
+    Tooltip = 'Enable barrel roll controls'
+}):AddKeyPicker('BarrelRollKey', {
+    Default = 'R',
+    Mode = 'Toggle',
+    Text = 'Barrel Roll',
+    NoUI = false,
+    Callback = function(Value)
+        Toggles.BarrelRollEnabled:SetValue(Value)
+    end
+})
+
+MovementBox:AddSlider('BarrelRollSpeed', {
+    Text = 'Roll Speed',
+    Default = 1.4,
+    Min = 1,
+    Max = 5,
+    Rounding = 1,
+    Compact = true
+}):OnChanged(function(Value)
+    if BarrelRollSystem then
+        BarrelRollSystem.settings.rollSpeed = Value
+    end
+end)
+
+MovementBox:AddSlider('BarrelRollSmoothing', {
+    Text = 'Roll Smooth',
+    Default = 0.3,
+    Min = 0.05,
+    Max = 0.3,
+    Rounding = 2,
+    Compact = true
+}):OnChanged(function(Value)
+    if BarrelRollSystem then
+        BarrelRollSystem.settings.smoothness = Value
+    end
+end)
 
 MovementBox:AddDropdown('FlyAnimStyle', {
     Values = {"Default", "Levitate", "Levitate2", "Skydive", "Sigma", "None"}, -- Add your new animation name here
@@ -2598,6 +2569,16 @@ end)
 RunService.RenderStepped:Connect(function(deltaTime)
     if Flying then
         updateFlips(deltaTime)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if Flying and Toggles.BarrelRollEnabled.Value then
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) and not BarrelRollActive then
+            performBarrelRoll(-1) -- Left roll
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.E) and not BarrelRollActive then
+            performBarrelRoll(1) -- Right roll
+        end
     end
 end)
 
