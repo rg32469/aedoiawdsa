@@ -8,6 +8,11 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua'))()
 
+local DirectionalInputBeganConnection = nil
+local DirectionalInputEndedConnection = nil
+local DefaultAnimationConnection = nil
+local IsDirectionalMode = false
+
 local SpeedBoostMultiplier = 2.0  -- How much faster when boosting
 local IsSpeedBoosting = false     -- Track if currently speed boosting
 local BaseSpeed = 0               -- Store the base speed when flying
@@ -264,28 +269,23 @@ local function setupFlyAnimation()
     -- Determine if character is R15
     isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
     
-    -- Stop and destroy existing animation if it exists
+    -- If we're in default mode and already have a playing animation, don't do anything
+    if not (Toggles.NewMode.Value or Toggles.SuperheroMode.Value) and flyAnimTrack and flyAnimTrack.IsPlaying then
+        return
+    end
+    
+    -- Stop and destroy existing animation if we're switching modes
     if flyAnimTrack then
         flyAnimTrack:Stop()
         flyAnimTrack:Destroy()
+        flyAnimTrack = nil
     end
 
-    -- Stop current animations
-    for direction, data in pairs(CurrentTracks) do
-        if data.track and data.track.IsPlaying then
-            data.track:Stop()
-        end
-        if data.connection then
-            data.connection:Disconnect()
-        end
-        CurrentTracks[direction] = nil
-    end
-    for k in pairs(IsFrozen) do
-        IsFrozen[k] = false
-    end
+    -- Stop all current directional animations
+    stopCurrentAnimation()
 
     if Toggles.NewMode.Value then
-        -- New Mode with directional animations
+        -- New Mode directional animations
         local direction = "idle"
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             direction = "forward"
@@ -315,7 +315,7 @@ local function setupFlyAnimation()
                     newTrack.TimePosition = settings.startTime
                     
                     local connection = RunService.Heartbeat:Connect(function()
-                        if not newTrack.IsPlaying then
+                        if not newTrack.IsPlaying or not Toggles.NewMode.Value then
                             connection:Disconnect()
                             return
                         end
@@ -337,7 +337,7 @@ local function setupFlyAnimation()
             end
         end
     elseif Toggles.SuperheroMode.Value then
-        -- Your existing Superhero mode code
+        -- Superhero mode directional animations
         local direction = "idle"
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             direction = "forward"
@@ -367,7 +367,7 @@ local function setupFlyAnimation()
                     newTrack.TimePosition = settings.startTime
                     
                     local connection = RunService.Heartbeat:Connect(function()
-                        if not newTrack.IsPlaying then
+                        if not newTrack.IsPlaying or not Toggles.SuperheroMode.Value then
                             connection:Disconnect()
                             return
                         end
@@ -389,12 +389,16 @@ local function setupFlyAnimation()
             end
         end
     else
-        -- Normal flight animation mode
+        -- Default flight mode - single continuous animation
         local anim = Instance.new("Animation")
-        -- Get animation ID based on rig type and selected style
         local animTable = isR15 and FlyAnimations.R15 or FlyAnimations.R6
-        anim.AnimationId = animTable[currentFlyAnim] ~= "" and animTable[currentFlyAnim] or animTable.Default
+        local selectedAnim = currentFlyAnim
         
+        if not animTable[selectedAnim] or animTable[selectedAnim] == "" then
+            selectedAnim = "Default"
+        end
+        
+        anim.AnimationId = animTable[selectedAnim]
         flyAnimTrack = humanoid:LoadAnimation(anim)
         
         if flyAnimTrack then
@@ -940,7 +944,71 @@ MovementBox:AddSlider('JumpPower', {
     Compact = false,
 })
 
+local function onDirectionalInput(input, began)
+    if not Flying then return end
+    
+    -- Only handle directional inputs if in a special animation mode
+    if Toggles.NewMode.Value or Toggles.SuperheroMode.Value then
+        if input.KeyCode == Enum.KeyCode.W or
+           input.KeyCode == Enum.KeyCode.S or
+           input.KeyCode == Enum.KeyCode.A or
+           input.KeyCode == Enum.KeyCode.D then
+            setupFlyAnimation()
+        end
+    end
+end
+
+-- Clean up any existing connections
+if DirectionalInputBeganConnection then DirectionalInputBeganConnection:Disconnect() end
+if DirectionalInputEndedConnection then DirectionalInputEndedConnection:Disconnect() end
+
+-- Create new input handling system that completely ignores directional inputs in default mode
+DirectionalInputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not Flying then return end
+    
+    -- Only process directional inputs if in a special mode
+    if not (Toggles.NewMode.Value or Toggles.SuperheroMode.Value) then return end
+    
+    if input.KeyCode == Enum.KeyCode.W or
+       input.KeyCode == Enum.KeyCode.S or
+       input.KeyCode == Enum.KeyCode.A or
+       input.KeyCode == Enum.KeyCode.D then
+        setupFlyAnimation()
+    end
+end)
+
+DirectionalInputEndedConnection = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not Flying then return end
+    
+    -- Only process directional inputs if in a special mode
+    if not (Toggles.NewMode.Value or Toggles.SuperheroMode.Value) then return end
+    
+    if input.KeyCode == Enum.KeyCode.W or
+       input.KeyCode == Enum.KeyCode.S or
+       input.KeyCode == Enum.KeyCode.A or
+       input.KeyCode == Enum.KeyCode.D then
+        setupFlyAnimation()
+    end
+end)
+
+-- Set up new input connections
+DirectionalInputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed then
+        onDirectionalInput(input, true)
+    end
+end)
+
+DirectionalInputEndedConnection = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if not gameProcessed then
+        onDirectionalInput(input, false)
+    end
+end)
+
 local DirectionalBox = Tabs.Main:AddRightGroupbox('Directional Animations')
+
+
 
 MovementBox:AddToggle('NewMode', {
     Text = 'New Animation Mode',
@@ -948,19 +1016,17 @@ MovementBox:AddToggle('NewMode', {
     Tooltip = 'Toggle new animation mode with directional combos',
     Callback = function(Value)
         isNewMode = Value
+        IsDirectionalMode = Value -- Update the flag
         if Flying then
-            -- Stop current animations
             if flyAnimTrack then
                 flyAnimTrack:Stop()
                 flyAnimTrack:Destroy()
                 flyAnimTrack = nil
             end
             stopCurrentAnimation()
-            -- Setup new animations
             setupFlyAnimation()
         end
     end
-
 })
 
 MovementBox:AddToggle('SuperheroMode', {
@@ -969,18 +1035,18 @@ MovementBox:AddToggle('SuperheroMode', {
     Tooltip = 'Toggle between normal flight and superhero directional animations',
     Callback = function(Value)
         isSuperheroMode = Value
+        IsDirectionalMode = Value -- Update the flag
         if Flying then
-            -- Stop current animations
             if flyAnimTrack then
                 flyAnimTrack:Stop()
                 flyAnimTrack:Destroy()
                 flyAnimTrack = nil
             end
             stopCurrentAnimation()
-            -- Setup new animations
             setupFlyAnimation()
         end
     end
+
 }):AddKeyPicker('SuperheroModeKey', {
     Default = 'H',
     Mode = 'Toggle',
